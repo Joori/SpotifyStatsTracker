@@ -1,8 +1,0 @@
-{
-    "status": "running",
-    "current": 60,
-    "total": 15944,
-    "percentage": 0,
-    "message": "Fetching batch metadata (60/216)...",
-    "error": false
-}
