@@ -376,15 +376,6 @@ class Database:
         tracks = self._loadTracks()
         importer = Importer()
 
-        # #region agent log
-        try:
-            import json as _json, time as _time
-            with open("debug-be96c3.log", "a", encoding="utf-8") as _f:
-                _f.write(_json.dumps({"sessionId":"be96c3","hypothesisId":"D","location":"database.py:importHistory","message":"importHistory entry","data":{"argType":type(exportedHistory).__name__,"argLen":len(exportedHistory) if hasattr(exportedHistory,"__len__") else None,"isStr":isinstance(exportedHistory,str)},"timestamp":int(_time.time()*1000)})+"\n")
-        except Exception:
-            pass
-        # #endregion
-
         if isinstance(exportedHistory, str):
             exportedHistory = [exportedHistory]
 
@@ -393,14 +384,6 @@ class Database:
         skippedFiles = 0
         for payload in exportedHistory:
             parsed, payloadType = importer._convertToList(payload)
-            # #region agent log
-            try:
-                import json as _json, time as _time
-                with open("debug-be96c3.log", "a", encoding="utf-8") as _f:
-                    _f.write(_json.dumps({"sessionId":"be96c3","hypothesisId":"B,C","location":"database.py:importHistory","message":"per-file parse","data":{"payloadType":payloadType,"parsedLen":len(parsed) if parsed is not None else None,"exportTypeSoFar":exportType,"willSkipEmpty":not parsed,"willSkipMismatch":exportType != "None" and payloadType != exportType and bool(parsed),"payloadPrefix":(payload[:40] if isinstance(payload,str) else None)},"timestamp":int(_time.time()*1000)})+"\n")
-            except Exception:
-                pass
-            # #endregion
             if not parsed:
                 skippedFiles += 1
                 continue
@@ -411,15 +394,6 @@ class Database:
                 skippedFiles += 1
                 continue
             parsedHistory.extend(parsed)
-
-        # #region agent log
-        try:
-            import json as _json, time as _time
-            with open("debug-be96c3.log", "a", encoding="utf-8") as _f:
-                _f.write(_json.dumps({"sessionId":"be96c3","hypothesisId":"B,C,D","location":"database.py:importHistory","message":"merge result","data":{"fileCount":len(exportedHistory),"skippedFiles":skippedFiles,"exportType":exportType,"mergedLen":len(parsedHistory)},"timestamp":int(_time.time()*1000)})+"\n")
-        except Exception:
-            pass
-        # #endregion
 
         if not parsedHistory:
             self.writeProgress(

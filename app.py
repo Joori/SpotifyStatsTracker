@@ -543,32 +543,11 @@ class SpotifyDashboardApp:
             if self.database.readProgress().get("status") == "running":
                 return redirect(url_for("importPage"))
 
-            raw_files = request.files.getlist("history_file")
-            uploads = [f for f in raw_files if f and f.filename]
-            # #region agent log
-            try:
-                import json as _json
-                with open("debug-be96c3.log", "a", encoding="utf-8") as _f:
-                    _f.write(_json.dumps({"sessionId":"be96c3","hypothesisId":"A","location":"app.py:importHistory","message":"upload receipt","data":{"rawCount":len(raw_files),"uploadCount":len(uploads),"filenames":[f.filename for f in uploads],"contentKeys":list(request.files.keys())},"timestamp":int(time.time()*1000)})+"\n")
-            except Exception:
-                pass
-            # #endregion
+            uploads = [f for f in request.files.getlist("history_file") if f and f.filename]
             if not uploads:
                 return redirect(url_for("importPage"))
 
-            payloads = []
-            for upload in uploads:
-                data = upload.read()
-                text = data.decode("utf-8")
-                payloads.append(text)
-                # #region agent log
-                try:
-                    import json as _json
-                    with open("debug-be96c3.log", "a", encoding="utf-8") as _f:
-                        _f.write(_json.dumps({"sessionId":"be96c3","hypothesisId":"E","location":"app.py:importHistory","message":"payload read","data":{"filename":upload.filename,"byteLen":len(data),"charLen":len(text),"prefix":text[:40]},"timestamp":int(time.time()*1000)})+"\n")
-                except Exception:
-                    pass
-                # #endregion
+            payloads = [upload.read().decode("utf-8") for upload in uploads]
             thread = threading.Thread(target=self.database.importHistory, args=(payloads,), daemon=True)
             thread.start()
             time.sleep(1)  # Give thread time to start and update progress

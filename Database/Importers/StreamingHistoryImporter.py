@@ -13,7 +13,7 @@ except ModuleNotFoundError:
 
 
 class Importer:
-    def __init__(self, user="Tzur", chunkSize = 1500, prefetchWorkersCount = 16):
+    def __init__(self, user="kjljixx", chunkSize = 1500, prefetchWorkersCount = 16):
         self.sp = SpotipyFree.Spotify()
         self.chunkSize = chunkSize
         self.prefetchWorkersCount = prefetchWorkersCount

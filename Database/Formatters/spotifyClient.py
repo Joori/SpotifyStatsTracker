@@ -41,9 +41,7 @@ class Client:
         playedAtTimestamp = timeToInt(timestamp)
         
         track["playedAt"] = playedAtTimestamp
-        duration = track.get("duration") or 0
-        # Clamp only when we know a real duration; stubs use duration 0
-        track["timePlayed"] = min(timePlayed, duration) if duration > 0 else timePlayed
+        track["timePlayed"] = timePlayed
 
         playedFrom = None
         if context:
