@@ -41,7 +41,9 @@ class Client:
         playedAtTimestamp = timeToInt(timestamp)
         
         track["playedAt"] = playedAtTimestamp
-        track["timePlayed"] = min(timePlayed, track["duration"])   #< sometimes spotipyFree returns extremely large (wrong) values (I think it has to do with pause)
+        duration = track.get("duration") or 0
+        # Clamp only when we know a real duration; stubs use duration 0
+        track["timePlayed"] = min(timePlayed, duration) if duration > 0 else timePlayed
 
         playedFrom = None
         if context:
@@ -54,6 +56,41 @@ class Client:
         track["playedFrom"] = playedFrom
 
         return track
+
+    @staticmethod
+    def formatStubTrack(name, artist, trackUri=None, duration=0):
+        """Minimal track metadata when Spotify lookup fails — keeps the play on the timeline."""
+        trackId = trackUri or f"stub:{name}|{artist}"
+        artistName = artist or "Unknown Artist"
+        return {
+            "name": name or "Unknown Track",
+            "releaseDate": 0,
+            "id": trackId,
+            "url": f"https://open.spotify.com/track/{trackUri}" if trackUri else "",
+            "artists": [{
+                "name": artistName,
+                "url": "",
+                "imageUrl": "",
+                "imageId": 0,
+                "id": f"stub-artist:{artistName}",
+            }],
+            "album": {
+                "name": "Unknown album",
+                "url": "",
+                "id": 0,
+                "imageId": 0,
+                "imageUrl": "",
+                "totalTracks": 0,
+                "releaseDate": 0,
+            },
+            "imageUrl": "",
+            "imageId": 0,
+            "duration": duration or 0,
+            "explicit": False,
+            "isrc": "",
+            "discNumber": 0,
+            "trackNumber": 0,
+        }
     
     @staticmethod
     def formatTrack(track, timestamp=-1, msPlayed=-1, context=None, embedPlaybackInfo=True):

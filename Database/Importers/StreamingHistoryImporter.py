@@ -20,9 +20,10 @@ class Importer:
 
     def _searchForSong(self, name, artist):
         query = f"track:{name} artist:{artist}"
-        track = self.sp.search(query, type="track", limit=1)["tracks"]["items"][0]
-        # track = self.sp.track(track["external_urls"]["spotify"])
-        return track
+        items = self.sp.search(query, type="track", limit=1)["tracks"]["items"]
+        if not items:
+            raise LookupError(f"No search results for '{name}' by '{artist}'")
+        return items[0]
 
     def _fetchTrackMeta(self, name, artist, trackUri):
         """ Fetch raw track metadata by URI, falling back to a name/artist search. """
@@ -31,7 +32,18 @@ class Importer:
                 return Client.formatTrack(self.sp.track(trackUri), embedPlaybackInfo=False)
             except Exception as e:
                 print(f"URI lookup failed for {trackUri}, falling back to search: {parseError(e)}")
-        return Client.formatTrack(self._searchForSong(name=name, artist=artist), embedPlaybackInfo=False)
+        if not name and not artist:
+            return None
+        try:
+            return Client.formatTrack(self._searchForSong(name=name, artist=artist), embedPlaybackInfo=False)
+        except Exception as e:
+            print(f"Search failed for '{name}' by '{artist}': {parseError(e)}")
+            return None
+
+    def _stubOrNone(self, name, artist, trackUri, timePlayed=0):
+        if not name and not artist and not trackUri:
+            return None
+        return Client.formatStubTrack(name, artist, trackUri, duration=timePlayed)
 
     def _convertToList(self, export):
         if export.lstrip().startswith("FILE_PATH,"):
@@ -122,15 +134,25 @@ class Importer:
 
                 try:
                     key, formatted = future.result()
+                    if not formatted:
+                        name, artist, trackUri = missingTracks[key]
+                        formatted = self._stubOrNone(name, artist, trackUri)
                     if formatted:
                         if key:
                             known[key] = formatted
-                        if len(formatted["artists"]) > 0:
+                        if len(formatted.get("artists") or []) > 0:
                             nameArtistKey = formatted["name"] + formatted["artists"][0]["name"]
                             known[nameArtistKey] = formatted
                 except Exception as e:
                     print(f"Error saving fetched track: {parseError(e)}")
         return known
+
+    def _cacheTrack(self, known, base, trackUri, name, artist):
+        known[base["id"]] = base
+        if trackUri:
+            known[trackUri] = base
+        if name and artist:
+            known[name + artist] = base
 
     def _resolvePlayMetadata(self, item, known):
         name, artist, startTimestamp, timePlayed, trackUri = item
@@ -139,20 +161,29 @@ class Importer:
             if matchedId and matchedId in known:
                 meta = Client.embedPlayInfo(known[matchedId].copy(), startTimestamp, timePlayed)
             else:
-                if not name or not artist:
+                if not name and not artist and not trackUri:
                     return None
 
                 base = self._fetchTrackMeta(name, artist, trackUri)
-                known[base["id"]] = base
-                if trackUri:
-                    known[trackUri] = base
-                known[name + artist] = base
+                if not base:
+                    base = self._stubOrNone(name, artist, trackUri, timePlayed)
+                if not base:
+                    return None
+
+                self._cacheTrack(known, base, trackUri, name, artist)
                 meta = Client.embedPlayInfo(base.copy(), startTimestamp, timePlayed)
 
             return meta
         except Exception as e:
             print(f"Error processing item: {parseError(e)}")
-            return None
+            base = self._stubOrNone(name, artist, trackUri, timePlayed)
+            if not base:
+                return None
+            try:
+                return Client.embedPlayInfo(base.copy(), startTimestamp, timePlayed)
+            except Exception as embedError:
+                print(f"Error embedding stub play: {parseError(embedError)}")
+                return None
 
     def _import(self, dataFunction, history, known=[], progressCallback=None):
         known = self.buildKnownIndex(known)

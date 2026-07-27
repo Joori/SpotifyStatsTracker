@@ -14,13 +14,13 @@ try:
     from Database.Importers.StreamingHistoryImporter import Importer
     from Database.Importers.AutoImporter import AutoImporter
     from Database.Listeners.spotifyListener import Listener
-    from Database.utils import parseError, convertToDatetime
+    from Database.utils import parseError, convertToDatetime, dateToString
 except ModuleNotFoundError:
     from Formatters.spotifyClient import Client
     from Importers.StreamingHistoryImporter import Importer
     from Importers.AutoImporter import AutoImporter
     from Listeners.spotifyListener import Listener
-    from utils import parseError, convertToDatetime
+    from utils import parseError, convertToDatetime, dateToString
 
 class Database:
     def __init__(self,
@@ -306,9 +306,13 @@ class Database:
             print(f"Error saving image: {parseError(e)}")
 
     def saveTrackImg(self, url: str, imgId: str):
+        if not url or not imgId:
+            return
         self._saveImg(self.imgDir_tracks, url, imgId)
 
     def saveArtistImg(self, url: str, imgId: str):
+        if not url or not imgId:
+            return
         self._saveImg(self.imgDir_artists, url, imgId)
     
     def saveImagesFromTrack(self, track: dict):
@@ -336,35 +340,121 @@ class Database:
 
         self._saveEntries(entries)
 
+    def _findTimelineGaps(self, entries: list, minGapDays: int = 7) -> list:
+        """Return gaps between consecutive plays longer than minGapDays."""
+        gaps = []
+        minGapSeconds = minGapDays * 24 * 3600
+        for i in range(1, len(entries)):
+            start = convertToDatetime(entries[i - 1]["playedAt"]).timestamp()
+            end = convertToDatetime(entries[i]["playedAt"]).timestamp()
+            diff = end - start
+            if diff >= minGapSeconds:
+                gaps.append({
+                    "days": round(diff / (24 * 3600), 1),
+                    "from": dateToString(start),
+                    "to": dateToString(end),
+                })
+        gaps.sort(key=lambda g: -g["days"])
+        return gaps
+
+    def _formatImportSummary(self, saved: int, total: int, gaps: list) -> str:
+        skipped = max(total - saved, 0)
+        parts = [f"Imported {saved} of {total} plays"]
+        if skipped:
+            parts.append(f"{skipped} skipped (no track name/artist)")
+        if gaps:
+            largest = gaps[0]
+            parts.append(
+                f"warning: {len(gaps)} gap(s) over 7 days "
+                f"(largest {largest['days']}d from {largest['from']} to {largest['to']}). "
+                f"Upload all StreamingHistory / Streaming_History files from your Spotify export to fill them"
+            )
+        return ". ".join(parts)
+
     def importHistory(self, exportedHistory):
         entries = self._loadEntries()
         tracks = self._loadTracks()
         importer = Importer()
 
-        parsedHistory, exportType = importer._convertToList(exportedHistory)
+        # #region agent log
+        try:
+            import json as _json, time as _time
+            with open("debug-be96c3.log", "a", encoding="utf-8") as _f:
+                _f.write(_json.dumps({"sessionId":"be96c3","hypothesisId":"D","location":"database.py:importHistory","message":"importHistory entry","data":{"argType":type(exportedHistory).__name__,"argLen":len(exportedHistory) if hasattr(exportedHistory,"__len__") else None,"isStr":isinstance(exportedHistory,str)},"timestamp":int(_time.time()*1000)})+"\n")
+        except Exception:
+            pass
+        # #endregion
+
+        if isinstance(exportedHistory, str):
+            exportedHistory = [exportedHistory]
+
+        parsedHistory = []
+        exportType = "None"
+        skippedFiles = 0
+        for payload in exportedHistory:
+            parsed, payloadType = importer._convertToList(payload)
+            # #region agent log
+            try:
+                import json as _json, time as _time
+                with open("debug-be96c3.log", "a", encoding="utf-8") as _f:
+                    _f.write(_json.dumps({"sessionId":"be96c3","hypothesisId":"B,C","location":"database.py:importHistory","message":"per-file parse","data":{"payloadType":payloadType,"parsedLen":len(parsed) if parsed is not None else None,"exportTypeSoFar":exportType,"willSkipEmpty":not parsed,"willSkipMismatch":exportType != "None" and payloadType != exportType and bool(parsed),"payloadPrefix":(payload[:40] if isinstance(payload,str) else None)},"timestamp":int(_time.time()*1000)})+"\n")
+            except Exception:
+                pass
+            # #endregion
+            if not parsed:
+                skippedFiles += 1
+                continue
+            if exportType == "None":
+                exportType = payloadType
+            elif payloadType != exportType:
+                print(f"Skipping file with mismatched export type '{payloadType}' (expected '{exportType}')")
+                skippedFiles += 1
+                continue
+            parsedHistory.extend(parsed)
+
+        # #region agent log
+        try:
+            import json as _json, time as _time
+            with open("debug-be96c3.log", "a", encoding="utf-8") as _f:
+                _f.write(_json.dumps({"sessionId":"be96c3","hypothesisId":"B,C,D","location":"database.py:importHistory","message":"merge result","data":{"fileCount":len(exportedHistory),"skippedFiles":skippedFiles,"exportType":exportType,"mergedLen":len(parsedHistory)},"timestamp":int(_time.time()*1000)})+"\n")
+        except Exception:
+            pass
+        # #endregion
+
         if not parsedHistory:
+            self.writeProgress(
+                "failed",
+                0,
+                0,
+                "No valid streaming history found in uploaded files",
+                error=True,
+            )
             return
 
         total = len(parsedHistory)
         self.writeProgress("running", 0, total, "Starting import")
 
-        index = 0
+        saved = 0
         try:
-            for index, meta in enumerate(importer.importHistory(parsedHistory, self._loadTracks().values(), exportType, progressCallback=self.writeProgress), start=1):  #< We only want the tracks, the importer doesn't care about the keys
+            for saved, meta in enumerate(importer.importHistory(parsedHistory, self._loadTracks().values(), exportType, progressCallback=self.writeProgress), start=1):
                 e, t = self._splitEntryAndTrack(meta)
                 entries.append(e)
                 tracks = self._addTrack(tracks, t)
                 self.saveImagesFromTrack(t)
 
-                if index % self.progressUpdateInterval == 0 or index == total:
-                    self.writeProgress("running", index, total, f"Imported {index} of {total}")
+                if saved % self.progressUpdateInterval == 0 or saved == total:
+                    self.writeProgress("running", saved, total, f"Imported {saved} of {total}")
 
             self._saveEntries(entries)
             self._saveTracks(tracks)
-            self.resortDatabase()     #< Entries are not added in order, so sort them by timestamp
-            self.writeProgress("complete", total, total, "Import complete")
+            self.resortDatabase()
+            gaps = self._findTimelineGaps(self._loadEntries())
+            message = self._formatImportSummary(saved, total, gaps)
+            if skippedFiles:
+                message += f". {skippedFiles} uploaded file(s) were skipped (unreadable or mismatched type)"
+            self.writeProgress("complete", saved, total, message)
         except Exception as e:
-            self.writeProgress("failed", index, total, f"Import failed: {parseError(e)}", error=True)
+            self.writeProgress("failed", saved, total, f"Import failed: {parseError(e)}", error=True)
             raise
 
     def filterByInterval(self, entries: list, startDate: datetime.datetime = None, endDate: datetime.datetime = None) -> list:

@@ -15,4 +15,4 @@ cookies*.json
 Database/Users/*/img/tracks/*
 Database/Users/*/img/artists/*
 tmp/
-Database
+Database/*.json
