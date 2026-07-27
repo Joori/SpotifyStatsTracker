@@ -872,7 +872,7 @@ class SpotifyDashboardApp:
             return render_template("entity_detail.html", username=self.username, **context)
 
     def run(self):
-        self.app.run(host="0.0.0.0", debug=True, port=5000, use_reloader=False)#, threaded=False)
+        self.app.run(host="0.0.0.0", debug=True, port=5462, use_reloader=False)#, threaded=False)
 
 if __name__ == "__main__":
     ## $env:IMPORT_KEYWORD="Weekly"
