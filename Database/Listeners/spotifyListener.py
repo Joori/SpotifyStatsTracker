@@ -1,3 +1,4 @@
+import signal
 import threading
 import time
 from SpotipyFree import Spotify
@@ -6,9 +7,27 @@ from Database.utils import parseError
 class Listener:
     def __init__(self, cookiesFile, refreshInterval=6):
         self.run = False
-        self.sp = Spotify(cookiesFile=cookiesFile)
-        self.sp.startRecentlyPlayedListener(refreshInterval=refreshInterval)
+        self.sp = self._createSpotifyClient(cookiesFile, refreshInterval)
         self.recentlyPlayed_Z1 = self.sp.current_user_recently_played()
+
+    def _createSpotifyClient(self, cookiesFile, refreshInterval):
+        if threading.current_thread() is threading.main_thread():
+            spotify = Spotify(cookiesFile=cookiesFile)
+            spotify.startRecentlyPlayedListener(refreshInterval=refreshInterval)
+            return spotify
+
+        originalSignal = signal.signal
+
+        def _safeSignal(*args, **kwargs):
+            return None
+
+        try:
+            signal.signal = _safeSignal
+            spotify = Spotify(cookiesFile=cookiesFile)
+            spotify.startRecentlyPlayedListener(refreshInterval=refreshInterval)
+            return spotify
+        finally:
+            signal.signal = originalSignal
 
     def isLoggedIn(self):
         if self.sp.isLoggedIn() == False:

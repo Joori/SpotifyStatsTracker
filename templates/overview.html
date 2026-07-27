@@ -1,68 +1,75 @@
 {% extends "layout.html" %}
 {% block content %}
-  <section class="hero">
-    <div class="hero-content">
-      <form class="filter-section dashboard-filter" method="get" action="{{ url_for('dashboard') }}">
-        <div class="filter-group">
-          <label for="interval">Time Period:</label>
-          <select id="interval" name="interval" onchange="updateDashboardInterval()">
-            <option value="all time" {% if interval == 'all time' %}selected{% endif %}>All Time</option>
-            <option value="day" {% if interval == 'day' %}selected{% endif %}>Last Day</option>
-            <option value="week" {% if interval == 'week' %}selected{% endif %}>Last Week</option>
-            <option value="month" {% if interval == 'month' %}selected{% endif %}>Last Month</option>
-            <option value="year" {% if interval == 'year' %}selected{% endif %}>Last Year</option>
-            <option value="5years" {% if interval == '5years' %}selected{% endif %}>Last 5 Years</option>
-            <option value="custom" {% if interval == 'custom' %}selected{% endif %}>Custom Date Range</option>
-          </select>
-        </div>
+  <header class="page-header">
+    <h1>Dashboard</h1>
+    <p>Listening totals and activity for the selected period.</p>
+  </header>
 
-        <div class="filter-group custom-dates" id="dashboardCustomDates" {% if interval != 'custom' %}style="display: none;"{% endif %}>
-          <label for="startDate">From:</label>
-          <input type="date" id="startDate" name="startDate" value="{{ customStart }}" onchange="updateDashboardDateFilter()">
-          <label for="endDate">To:</label>
-          <input type="date" id="endDate" name="endDate" value="{{ customEnd }}" onchange="updateDashboardDateFilter()">
-        </div>
-
-        <noscript>
-          <button class="primary-button" type="submit">Apply</button>
-        </noscript>
-      </form>
-
-      <div class="dashboard-summary">
-        <div class="summary-card">
-          <h2>Total songs played</h2>
-          <p class="summary-value">{{ totalSongsPlayed or 0 }}</p>
-          {% if totalSongsChangeText %}
-            <div class="summary-change {{ totalSongsChangeClass }}">{{ totalSongsChangeText }}</div>
-          {% endif %}
-        </div>
-        <div class="summary-card">
-          <h2>Total listen time</h2>
-          <p class="summary-value">{{ totalListenTime or "0:00" }}</p>
-          {% if totalListenChangeText %}
-            <div class="summary-change {{ totalListenChangeClass }}">{{ totalListenChangeText }}</div>
-          {% endif %}
-        </div>
-        <a class="summary-card" href="/song/{{ currentTopSong.get('id') or '' }}">
-          <h2>Top song</h2>
-          {% if currentTopSong %}
-            <strong class="summary-value">{{ currentTopSong.name }}</strong>
-            <span>{{ currentTopSong.totalTimeListenedText }} listened in this period</span>
-          {% else %}
-            <p>No songs played in this period.</p>
-          {% endif %}
-        </a>
-        <a class="summary-card" href="/artist/{{ currentTopArtist.get('id') or '' }}">
-          <h2>Top artist</h2>
-          {% if currentTopArtist %}
-            <strong class="summary-value">{{ currentTopArtist.name }}</strong>
-            <span>{{ currentTopArtist.totalTimeListenedText }} listened in this period</span>
-          {% else %}
-            <p>No artists played in this period.</p>
-          {% endif %}
-        </a>
-      </div>
+  <form class="filter-section dashboard-filter" method="get" action="{{ url_for('dashboard') }}" aria-label="Time period filter">
+    <div class="filter-group">
+      <label for="interval">Time period</label>
+      <select id="interval" name="interval" onchange="updateDashboardInterval()">
+        <option value="all time" {% if interval == 'all time' %}selected{% endif %}>All Time</option>
+        <option value="day" {% if interval == 'day' %}selected{% endif %}>Last Day</option>
+        <option value="week" {% if interval == 'week' %}selected{% endif %}>Last Week</option>
+        <option value="month" {% if interval == 'month' %}selected{% endif %}>Last Month</option>
+        <option value="year" {% if interval == 'year' %}selected{% endif %}>Last Year</option>
+        <option value="5years" {% if interval == '5years' %}selected{% endif %}>Last 5 Years</option>
+        <option value="custom" {% if interval == 'custom' %}selected{% endif %}>Custom Date Range</option>
+      </select>
     </div>
+
+    <div class="filter-group custom-dates" id="dashboardCustomDates" {% if interval != 'custom' %}style="display: none;"{% endif %}>
+      <label for="startDate">From</label>
+      <input type="date" id="startDate" name="startDate" value="{{ customStart }}" onchange="updateDashboardDateFilter()">
+      <label for="endDate">To</label>
+      <input type="date" id="endDate" name="endDate" value="{{ customEnd }}" onchange="updateDashboardDateFilter()">
+    </div>
+
+    <noscript>
+      <button class="primary-button" type="submit">Apply</button>
+    </noscript>
+  </form>
+
+  <section class="dashboard-summary" aria-label="Listening summary">
+    <div class="summary-card">
+      <h2>Total songs played</h2>
+      <p class="summary-value">{{ totalSongsPlayed or 0 }}</p>
+      {% if totalSongsChangeText %}
+        <div class="summary-change {{ totalSongsChangeClass }}">{{ totalSongsChangeText }}</div>
+      {% endif %}
+    </div>
+    <div class="summary-card">
+      <h2>Total listen time</h2>
+      <p class="summary-value">{{ totalListenTime or "0:00" }}</p>
+      {% if totalListenChangeText %}
+        <div class="summary-change {{ totalListenChangeClass }}">{{ totalListenChangeText }}</div>
+      {% endif %}
+    </div>
+    {% if currentTopSong %}
+    <a class="summary-card" href="/song/{{ currentTopSong.get('id') or '' }}">
+      <h2>Top song</h2>
+      <strong class="summary-value">{{ currentTopSong.name }}</strong>
+      <span class="summary-sub">{{ currentTopSong.totalTimeListenedText }} listened in this period</span>
+    </a>
+    {% else %}
+    <div class="summary-card">
+      <h2>Top song</h2>
+      <p class="summary-empty">No songs played in this period.</p>
+    </div>
+    {% endif %}
+    {% if currentTopArtist %}
+    <a class="summary-card" href="/artist/{{ currentTopArtist.get('id') or '' }}">
+      <h2>Top artist</h2>
+      <strong class="summary-value">{{ currentTopArtist.name }}</strong>
+      <span class="summary-sub">{{ currentTopArtist.totalTimeListenedText }} listened in this period</span>
+    </a>
+    {% else %}
+    <div class="summary-card">
+      <h2>Top artist</h2>
+      <p class="summary-empty">No artists played in this period.</p>
+    </div>
+    {% endif %}
   </section>
 
   {% include '_tracks_graph.html' %}

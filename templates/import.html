@@ -1,13 +1,11 @@
 {% extends "layout.html" %}
 {% block content %}
-  <section class="hero">
-    <div class="hero-content">
-      <h1>Import Streaming History</h1>
-      <p>Upload your Spotify export file and let the app import your listening history with progress tracking.</p>
-    </div>
-  </section>
+  <header class="page-header">
+    <h1>Import Streaming History</h1>
+    <p>Upload your Spotify export file and import listening history with progress tracking.</p>
+  </header>
 
-  <section class="card import-card">
+  <section class="import-card" aria-label="Import form">
     <form id="import-form" action="{{ url_for('importHistory') }}" method="post" enctype="multipart/form-data">
       <label for="history_file">Spotify history JSON file</label>
       <input id="history_file" name="history_file" type="file" accept=".json, .csv" required />

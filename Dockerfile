@@ -23,7 +23,7 @@ RUN apt-get autoremove -y
 COPY . .
 
 # Expose Flask port
-EXPOSE 5000
+EXPOSE 5462
 
 # Set environment variables
 ENV FLASK_APP=app.py

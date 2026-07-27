@@ -1,34 +1,30 @@
 {% extends "layout.html" %}
 {% block content %}
-  <section class="hero">
-    <div class="hero-content">
-      <div class="history-intro">
-        <h2>Latest plays</h2>
-        <p>Browse the most recent songs from your listening history.</p>
-      </div>
+  <header class="page-header">
+    <h1>History</h1>
+    <p>Browse the most recent songs from your listening history.</p>
+  </header>
 
-      <form class="filter-section dashboard-filter" method="get" action="{{ url_for('historyPage') }}">
-        <div class="filter-search">
-          <label for="dashboardSearch">Filter:</label>
-          <input
-            type="search"
-            id="dashboardSearch"
-            class="auto-search-focus"
-            name="q"
-            value="{{ request.args.get('q', '') }}"
-            placeholder="Filter songs, artists, playlists"
-            aria-label="Filter the history list"
-            oninput="scheduleSearchFilter('dashboardSearch', updateDashboardFilters)"
-            onkeydown="handleSearchKeydown(event, updateDashboardFilters)"
-          />
-        </div>
-
-        <noscript>
-          <button class="primary-button" type="submit">Apply</button>
-        </noscript>
-      </form>
+  <form class="filter-section dashboard-filter" method="get" action="{{ url_for('historyPage') }}" aria-label="Filter history">
+    <div class="filter-search">
+      <label for="dashboardSearch">Filter</label>
+      <input
+        type="search"
+        id="dashboardSearch"
+        class="auto-search-focus"
+        name="q"
+        value="{{ request.args.get('q', '') }}"
+        placeholder="Filter songs, artists, playlists"
+        aria-label="Filter the history list"
+        oninput="scheduleSearchFilter('dashboardSearch', updateDashboardFilters)"
+        onkeydown="handleSearchKeydown(event, updateDashboardFilters)"
+      />
     </div>
-  </section>
+
+    <noscript>
+      <button class="primary-button" type="submit">Apply</button>
+    </noscript>
+  </form>
 
   <section class="track-list">
     {% if tracks %}

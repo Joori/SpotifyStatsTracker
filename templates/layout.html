@@ -3,39 +3,85 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#000000" />
+    <meta name="theme-color" content="#0f1113" />
     <meta name="title" content="Spotify Tracker by Tzur Soffer" />
     <meta name="description" content="Keep track of your Spotify listening habits with this Spotify Tracker." />
     <title>Spotify Tracker by Tzur Soffer</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
     <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}" />
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/favicon.png') }}">
   </head>
   <body>
-    <header class="topbar">
-      <div class="brand">Spotify Tracker by Tzur Soffer</div>
-      <a id="github-link" 
-        href="https://github.com/TzurSoffer/SpotifyStatsTracker" 
-        target="_blank" 
-        rel="noopener noreferrer">
-        ⭐ on GitHub
-      </a>
-      <div id="version-badge" class="version-badge" style="display:none;">
-        <span id="version-badge-text"></span>
-      </div>
-      <nav class="nav-links">
-        {% set currentQuery = request.args.get('q', '') %}
-        {% set currentEndpoint = request.endpoint %}
-        <a href="{{ url_for('dashboard', q=currentQuery) if currentQuery else url_for('dashboard') }}" class="{{ 'active' if currentEndpoint == 'dashboard' else '' }}">Dashboard</a>
-        <a href="{{ url_for('historyPage', q=currentQuery) if currentQuery else url_for('historyPage') }}" class="{{ 'active' if currentEndpoint == 'historyPage' else '' }}">History</a>
-        <a href="{{ url_for('topSongsPage', q=currentQuery) if currentQuery else url_for('topSongsPage') }}" class="{{ 'active' if currentEndpoint == 'topSongsPage' else '' }}">Top Songs</a>
-        <a href="{{ url_for('topArtistsPage', q=currentQuery) if currentQuery else url_for('topArtistsPage') }}" class="{{ 'active' if currentEndpoint == 'topArtistsPage' else '' }}">Top Artists</a>
-        <a href="{{ url_for('importPage') }}" class="{{ 'active' if currentEndpoint == 'importPage' else '' }}">Import</a>
-        <a href="/login">Logout</a>
-      </nav>
+    <a class="skip-link" href="#main-content">Skip to content</a>
+
+    <header class="mobile-bar">
+      <button
+        type="button"
+        class="sidebar-toggle"
+        id="sidebarToggle"
+        aria-controls="app-sidebar"
+        aria-expanded="false"
+        aria-label="Open navigation"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path fill="currentColor" d="M4 7h16v2H4V7zm0 5h16v2H4v-2zm0 5h16v2H4v-2z"/>
+        </svg>
+      </button>
+      <div class="brand">Spotify Tracker</div>
     </header>
 
-    <main class="page">{% block content %}{% endblock %}</main>
+    <div class="sidebar-backdrop" id="sidebarBackdrop" hidden></div>
+
+    <aside class="sidebar" id="app-sidebar" aria-label="App navigation">
+      <div class="sidebar-top">
+        <div class="brand">Spotify Tracker</div>
+        <button
+          type="button"
+          class="sidebar-close"
+          id="sidebarClose"
+          aria-label="Close navigation"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path fill="currentColor" d="M18.3 5.7a1 1 0 0 0-1.4-1.4L12 9.17 7.1 4.3A1 1 0 0 0 5.7 5.7L10.59 12 5.7 16.9a1 1 0 1 0 1.4 1.4L12 14.83l4.9 4.87a1 1 0 0 0 1.4-1.4L13.41 12l4.89-5.3z"/>
+          </svg>
+        </button>
+      </div>
+
+      <nav class="nav-links" aria-label="Primary">
+        {% set currentQuery = request.args.get('q', '') %}
+        {% set currentEndpoint = request.endpoint %}
+        <a href="{{ url_for('dashboard', q=currentQuery) if currentQuery else url_for('dashboard') }}" class="{{ 'active' if currentEndpoint == 'dashboard' else '' }}" {% if currentEndpoint == 'dashboard' %}aria-current="page"{% endif %}>Dashboard</a>
+        <a href="{{ url_for('historyPage', q=currentQuery) if currentQuery else url_for('historyPage') }}" class="{{ 'active' if currentEndpoint == 'historyPage' else '' }}" {% if currentEndpoint == 'historyPage' %}aria-current="page"{% endif %}>History</a>
+        <a href="{{ url_for('topSongsPage', q=currentQuery) if currentQuery else url_for('topSongsPage') }}" class="{{ 'active' if currentEndpoint == 'topSongsPage' else '' }}" {% if currentEndpoint == 'topSongsPage' %}aria-current="page"{% endif %}>Top Songs</a>
+        <a href="{{ url_for('topArtistsPage', q=currentQuery) if currentQuery else url_for('topArtistsPage') }}" class="{{ 'active' if currentEndpoint == 'topArtistsPage' else '' }}" {% if currentEndpoint == 'topArtistsPage' %}aria-current="page"{% endif %}>Top Artists</a>
+        <a href="{{ url_for('importPage') }}" class="{{ 'active' if currentEndpoint == 'importPage' else '' }}" {% if currentEndpoint == 'importPage' %}aria-current="page"{% endif %}>Import</a>
+        <a href="/login" class="nav-logout">Logout</a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div id="version-badge" class="version-badge" style="display:none;" role="status" aria-live="polite">
+          <span id="version-badge-text"></span>
+        </div>
+        <a
+          class="github-link"
+          id="github-link"
+          href="https://github.com/TzurSoffer/SpotifyStatsTracker"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="View project on GitHub"
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82A7.68 7.68 0 0 1 8 4.14c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
+          </svg>
+          GitHub
+        </a>
+      </div>
+    </aside>
+
+    <main class="page" id="main-content">{% block content %}{% endblock %}</main>
     <script>
       window.__searchDebounceTimers = window.__searchDebounceTimers || {};
 
@@ -80,6 +126,46 @@
 
         checkVersion();
         setInterval(checkVersion, 15 * 60 * 1000);
+      })();
+
+      (function(){
+        const sidebar = document.getElementById('app-sidebar');
+        const toggle = document.getElementById('sidebarToggle');
+        const closeBtn = document.getElementById('sidebarClose');
+        const backdrop = document.getElementById('sidebarBackdrop');
+
+        if (!sidebar || !toggle || !closeBtn || !backdrop) {
+          return;
+        }
+
+        function setOpen(isOpen) {
+          document.body.classList.toggle('sidebar-open', isOpen);
+          toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+          toggle.setAttribute('aria-label', isOpen ? 'Close navigation' : 'Open navigation');
+          backdrop.hidden = !isOpen;
+        }
+
+        function closeSidebar() {
+          setOpen(false);
+        }
+
+        toggle.addEventListener('click', () => {
+          setOpen(!document.body.classList.contains('sidebar-open'));
+        });
+        closeBtn.addEventListener('click', closeSidebar);
+        backdrop.addEventListener('click', closeSidebar);
+
+        document.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape') {
+            closeSidebar();
+          }
+        });
+
+        window.addEventListener('resize', () => {
+          if (window.matchMedia('(min-width: 901px)').matches) {
+            closeSidebar();
+          }
+        });
       })();
 
       window.addEventListener('load', () => {
