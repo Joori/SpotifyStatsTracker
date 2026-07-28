@@ -1,96 +1,109 @@
 {% set imgId = track.get('imageId', '') %}
 {% set item_number = item_number if item_number is defined else '' %}
 {% set section = section if section is defined else 'dashboard' %}
-{% set card_href = '/artist/' ~ (track.get('id') or '') if section == 'top_artists' and track.get('id') else '/song/' ~ (track.get('id') or '') if track.get('id') else '' %}
+{% if section == 'top_artists' and track.get('id') %}
+  {% set card_href = '/artist/' ~ track.get('id') %}
+{% elif section == 'top_albums' and track.get('id') %}
+  {% set card_href = '/album/' ~ track.get('id') %}
+{% elif section == 'top_contexts' and track.get('detailUrl') %}
+  {% set card_href = track.get('detailUrl') %}
+{% elif track.get('id') %}
+  {% set card_href = '/song/' ~ track.get('id') %}
+{% else %}
+  {% set card_href = '' %}
+{% endif %}
 <article class="track-card"{% if card_href %} onclick="if (!event.target.closest('a')) { window.location.href='{{ card_href }}'; }" tabindex="0" role="button"{% endif %}>
   <div class="track-number">{{ item_number }}</div>
-  
-  <!-- Image path depends on section -->
+
   {% if section == 'top_artists' %}
     <img class="track-cover" loading="lazy" src="/img/{{ username }}/artists/{{ imgId }}.jpeg" alt="Artist image for {{ track.get('name','') }}" />
   {% else %}
-    <img class="track-cover" loading="lazy" src="/img/{{ username }}/tracks/{{ imgId }}.jpeg" alt="Album cover for {{ track.get('name','') }}" />
+    <img class="track-cover" loading="lazy" src="/img/{{ username }}/tracks/{{ imgId }}.jpeg" alt="Cover for {{ track.get('name','') }}" />
   {% endif %}
-  
+
   <div class="track-details">
     <div class="track-details-top">
       <div class="track-header">
         {% if section == 'top_artists' %}
-          <a href="/artist/{{ track.get('id') or '' }}">
-            <h3>{{ track.get('name', '') }}</h3>
-          </a>
-        {% elif section == 'top_songs' %}
-          <a href="/song/{{ track.get('id') or '' }}">
-            <h3>{{ track.get('name', '') }}</h3>
-          </a>
+          <a href="/artist/{{ track.get('id') or '' }}"><h3>{{ track.get('name', '') }}</h3></a>
+        {% elif section == 'top_albums' %}
+          <a href="/album/{{ track.get('id') or '' }}"><h3>{{ track.get('name', '') }}</h3></a>
+        {% elif section == 'top_contexts' and track.get('detailUrl') %}
+          <a href="{{ track.get('detailUrl') }}"><h3>{{ track.get('name', '') }}</h3></a>
         {% elif track.get('id') %}
-          <a href="/song/{{ track.get('id') or '' }}">
-            <h3>{{ track.get('name', '') }}</h3>
-          </a>
+          <a href="/song/{{ track.get('id') or '' }}"><h3>{{ track.get('name', '') }}</h3></a>
         {% else %}
           <h3>{{ track.get('name', '') }}</h3>
         {% endif %}
-        
-        <!-- Stats based on section -->
-        {% if section == 'top_artists' %}
-          {% if track.get('plays') or track.get('uniqueSongCount') or track.get('time') %}
-          <div class="track-meta small">
-              {% if track.get('plays') %}
-              <div class="track-meta small">
-                  {% if track.get('plays') %}{{ track.get('plays') }} plays{% endif %}
-                  {% if track.get('totalTimeListenedText') %} · {{ track.get('totalTimeListenedText') }}{% endif %}
-                  {% if track.get('sortPercentText') %} · {{ track.get('sortPercentText') }}{% endif %}
-              </div>
-              {% endif %}
 
-              {% if track.get('uniqueSongCount') %}
-              <div>You played {{ track.get('uniqueSongCount') }} different songs by {{ track.get('name', '') }}</div>
-              {% endif %}
+        {% if section == 'top_artists' %}
+          {% if track.get('plays') or track.get('uniqueSongCount') %}
+          <div class="track-meta small">
+            {% if track.get('plays') %}{{ track.get('plays') }} plays{% endif %}
+            {% if track.get('totalTimeListenedText') %} · {{ track.get('totalTimeListenedText') }}{% endif %}
+            {% if track.get('sortPercentText') %} · {{ track.get('sortPercentText') }}{% endif %}
+            {% if track.get('uniqueSongCount') %}<div>You played {{ track.get('uniqueSongCount') }} different songs by {{ track.get('name', '') }}</div>{% endif %}
           </div>
           {% endif %}
+        {% elif section == 'top_albums' %}
+          <div class="track-meta small">
+            {% if track.get('artist') %}{{ track.get('artist') }} · {% endif %}
+            {% if track.get('plays') %}{{ track.get('plays') }} plays{% endif %}
+            {% if track.get('totalTimeListenedText') %} · {{ track.get('totalTimeListenedText') }}{% endif %}
+            {% if track.get('uniqueTrackCount') %} · {{ track.get('uniqueTrackCount') }} tracks heard{% endif %}
+            {% if track.get('albumDepthText') %} · {{ track.get('albumDepthText') }}{% endif %}
+          </div>
+        {% elif section == 'top_contexts' %}
+          <div class="track-meta small">
+            {% if track.get('contextTypeText') %}{{ track.get('contextTypeText') }} · {% endif %}
+            {% if track.get('plays') %}{{ track.get('plays') }} plays{% endif %}
+            {% if track.get('totalTimeListenedText') %} · {{ track.get('totalTimeListenedText') }}{% endif %}
+            {% if track.get('uniqueSongCount') %} · {{ track.get('uniqueSongCount') }} unique songs{% endif %}
+          </div>
         {% elif section == 'top_songs' %}
-          <!-- Top Songs stats: plays, time -->
           {% if track.get('plays') or track.get('totalTimeListenedText') %}
           <div class="track-meta small">
-              {% if track.get('plays') %}{{ track.get('plays') }} plays{% endif %}
-              {% if track.get('totalTimeListenedText') %} · {{ track.get('totalTimeListenedText') }}{% endif %}
-              {% if track.get('sortPercentText') %} · {{ track.get('sortPercentText') }}{% endif %}
+            {% if track.get('plays') %}{{ track.get('plays') }} plays{% endif %}
+            {% if track.get('totalTimeListenedText') %} · {{ track.get('totalTimeListenedText') }}{% endif %}
+            {% if track.get('sortPercentText') %} · {{ track.get('sortPercentText') }}{% endif %}
           </div>
           {% endif %}
         {% else %}
-          <!-- Dashboard stats: time played -->
           {% if track.get('timePlayedText') %}
-          <div class="track-meta small">Time Played: {{ track.get('timePlayedText') }}</div>
+          <div class="track-meta small">Time Played: {{ track.get('timePlayedText') }}{% if track.get('completionPercentText') %} · {{ track.get('completionPercentText') }} complete{% endif %}</div>
           {% endif %}
         {% endif %}
-        
-        {% if section != 'top_artists' %}
-        <div class="track-meta">{{ track.get('artistsText') or (track.get('artists') and (', '.join(track.get('artists'))) ) or track.get('artist','') }} · {{ (track.get('album') and track.get('album').get('name')) or '' }}</div>
+
+        {% if section not in ['top_artists', 'top_albums', 'top_contexts'] %}
+        <div class="track-meta">{{ track.get('artistsText') or track.get('artist','') }} · {{ (track.get('album') and track.get('album').get('name')) or '' }}</div>
         {% endif %}
-        
-        <!-- Played at - only for dashboard -->
+
         {% if section == 'dashboard' and track.get('playedAtText') %}
           <div class="track-meta">Played at {{ track.get('playedAtText') }}</div>
         {% endif %}
       </div>
-      
-      <!-- Attributes based on section -->
+
       <div class="track-attributes">
         {% if section == 'dashboard' %}
-          <!-- Dashboard: show duration, time played, track info, explicit, isrc -->
           {% if track.get('durationText') %}<span class="track-label">Duration: {{ track.get('durationText') }}</span>{% endif %}
           {% if track.get('timePlayedText') %}<span class="track-label">Time Played: {{ track.get('timePlayedText') }}</span>{% endif %}
+          {% if track.get('completionPercentText') %}<span class="track-label">{{ track.get('completionPercentText') }} complete</span>{% endif %}
           {% if track.get('trackNumber') %}<span class="track-label">Track {{ track.get('trackNumber') }} · Disc {{ track.get('discNumber') }}</span>{% endif %}
           <span class="track-label">{{ "Explicit" if track.get('explicit') else "Clean" }}</span>
-          {% if track.get('isrc') %}<span class="track-label">ISRC: {{ track.get('isrc') }}</span>{% endif %}
-          {% if track.get('contextName') %}<span class="track-label">Played from {{ track.get('contextName') }}</span>{% endif %}
+          {% if track.get('contextName') and track.get('contextUrl') %}
+            <a class="track-label" href="{{ track.get('contextUrl') }}">Played from {{ track.get('contextName') }}</a>
+          {% elif track.get('contextName') %}
+            <span class="track-label">Played from {{ track.get('contextName') }}</span>
+          {% endif %}
         {% elif section == 'top_songs' %}
           {% if track.get('firstListenedText') %}<span class="track-label">First Listened: {{ track.get('firstListenedText') }}</span>{% endif %}
           {% if track.get('durationText') %}<span class="track-label">Duration: {{ track.get('durationText') }}</span>{% endif %}
-          {% if track.get('trackNumber') %}<span class="track-label">Track {{ track.get('trackNumber') }} · Disc {{ track.get('discNumber') }}</span>{% endif %}
-          <span class="track-label">{{ "Explicit" if track.get('explicit') else "Clean" }}</span>
-          {% if track.get('isrc') %}<span class="track-label">ISRC: {{ track.get('isrc') }}</span>{% endif %}
+          {% if track.get('completionPercentText') %}<span class="track-label">{{ track.get('completionPercentText') }} avg complete</span>{% endif %}
         {% elif section == 'top_artists' %}
+          {% if track.get('firstListenedText') %}<span class="track-label">First Listened: {{ track.get('firstListenedText') }}</span>{% endif %}
+        {% elif section == 'top_albums' %}
+          {% if track.get('firstListenedText') %}<span class="track-label">First Listened: {{ track.get('firstListenedText') }}</span>{% endif %}
+        {% elif section == 'top_contexts' %}
           {% if track.get('firstListenedText') %}<span class="track-label">First Listened: {{ track.get('firstListenedText') }}</span>{% endif %}
         {% endif %}
       </div>

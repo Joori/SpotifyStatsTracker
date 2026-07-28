@@ -55,6 +55,18 @@ class DummyDatabase:
         type_key, playlist_id = playlistUri.split(":", 1)
         return self.playlists[type_key].get(playlist_id)
 
+    def getCompletionRate(self, songId=None, entries=None):
+        return 83.3
+
+    def getSongPeak(self, songId):
+        return {
+            "peakDay": {"date": "2023-11-14", "plays": 2},
+            "peakWeek": {"week": "2023-W46", "plays": 2},
+        }
+
+    def getSongTimeline(self, songId, everyHours=24 * 7):
+        return [{"date": "2023-11-14", "label": "Nov 14", "plays": 2, "ms": 400000}]
+
 
 class EntityPageTests(unittest.TestCase):
     def test_song_detail_context_aggregates_stats(self):
@@ -66,6 +78,8 @@ class EntityPageTests(unittest.TestCase):
         self.assertEqual(context["entity"]["name"], "Song One")
         self.assertEqual(context["stats"]["plays"], 2)
         self.assertEqual(context["stats"]["totalTimeMs"], 400_000)
+        self.assertEqual(context["stats"]["completionRate"], 83.3)
+        self.assertEqual(context["albumUrl"], "/album/album-1")
 
     def test_artist_detail_context_lists_related_songs(self):
         app = SpotifyDashboardApp.__new__(SpotifyDashboardApp)
@@ -85,6 +99,16 @@ class EntityPageTests(unittest.TestCase):
 
         self.assertEqual(context["entity"]["name"], "Chill Picks")
         self.assertEqual(context["stats"]["plays"], 2)
+
+    def test_album_detail_context(self):
+        app = SpotifyDashboardApp.__new__(SpotifyDashboardApp)
+        app.database = DummyDatabase()
+
+        context = app._buildAlbumDetailContext("album-1")
+
+        self.assertEqual(context["entity"]["name"], "Album One")
+        self.assertEqual(context["stats"]["plays"], 2)
+        self.assertEqual(context["stats"]["uniqueTracks"], 1)
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 {% extends "layout.html" %}
 {% block content %}
 <header class="page-header">
-  <h1>Dashboard</h1>
+  <h1>Overview</h1>
   <p>Listening totals and activity for the selected period.</p>
 </header>
 
@@ -48,6 +48,19 @@
     <div class="summary-change {{ totalListenChangeClass }}">{{ totalListenChangeText }}</div>
     {% endif %}
   </div>
+  <div class="summary-card">
+    <h2>Avg daily time</h2>
+    <p class="summary-value">{{ avgDailyListenTime or "0:00" }}</p>
+    <span class="summary-sub">Across {{ sessionStats.activeDays if sessionStats else 0 }} active days</span>
+  </div>
+  <a class="summary-card" href="{{ url_for('insightsPage', interval=interval, startDate=customStart, endDate=customEnd) }}#streaks">
+    <h2>Current streak</h2>
+    <p class="summary-value">{{ streakStats.currentStreak if streakStats else 0 }} days</p>
+    <span class="summary-sub">Longest {{ streakStats.longestStreak if streakStats else 0 }} days · View insights</span>
+  </a>
+</section>
+
+<section class="dashboard-summary dashboard-spotlight" aria-label="Period spotlight">
   {% if currentTopSong %}
   <a class="summary-card" href="/song/{{ currentTopSong.get('id') or '' }}">
     <h2>Top song</h2>
@@ -75,6 +88,43 @@
 </section>
 
 {% include '_tracks_graph.html' %}
+
+<section class="overview-peeks" aria-label="Top five peeks">
+  <div class="peek-column">
+    <div class="peek-header">
+      <h2>Top songs</h2>
+      <a href="{{ url_for('explorePage', tab='songs', interval=interval, startDate=customStart, endDate=customEnd) }}">Explore all</a>
+    </div>
+    {% if peekTopSongs %}
+    <div class="track-list compact-list">
+      {% for track in peekTopSongs %}
+        {% set item_number = loop.index %}
+        {% set section = 'top_songs' %}
+        {% include '_track_card.html' %}
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="loading">No songs in this period.</p>
+    {% endif %}
+  </div>
+  <div class="peek-column">
+    <div class="peek-header">
+      <h2>Top artists</h2>
+      <a href="{{ url_for('explorePage', tab='artists', interval=interval, startDate=customStart, endDate=customEnd) }}">Explore all</a>
+    </div>
+    {% if peekTopArtists %}
+    <div class="track-list compact-list">
+      {% for track in peekTopArtists %}
+        {% set item_number = loop.index %}
+        {% set section = 'top_artists' %}
+        {% include '_track_card.html' %}
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="loading">No artists in this period.</p>
+    {% endif %}
+  </div>
+</section>
 
 <script>
   function updateDashboardInterval() {

@@ -2,7 +2,7 @@
 {% block content %}
   <header class="page-header">
     <h1>History</h1>
-    <p>Browse the most recent songs from your listening history.</p>
+    <p>Browse plays{% if intervalLabel %} for {{ intervalLabel }}{% endif %}.</p>
   </header>
 
   <form class="filter-section dashboard-filter" method="get" action="{{ url_for('historyPage') }}" aria-label="Filter history">
@@ -16,15 +16,50 @@
         value="{{ request.args.get('q', '') }}"
         placeholder="Filter songs, artists, playlists"
         aria-label="Filter the history list"
-        oninput="scheduleSearchFilter('dashboardSearch', updateDashboardFilters)"
-        onkeydown="handleSearchKeydown(event, updateDashboardFilters)"
+        oninput="scheduleSearchFilter('dashboardSearch', updateHistoryFilters)"
+        onkeydown="handleSearchKeydown(event, updateHistoryFilters)"
       />
+    </div>
+
+    <div class="filter-group">
+      <label for="interval">Time period</label>
+      <select id="interval" name="interval" onchange="updateHistoryInterval()">
+        <option value="" {% if not interval %}selected{% endif %}>All Time</option>
+        <option value="day" {% if interval=='day' %}selected{% endif %}>Last Day</option>
+        <option value="week" {% if interval=='week' %}selected{% endif %}>Last Week</option>
+        <option value="month" {% if interval=='month' %}selected{% endif %}>Last Month</option>
+        <option value="year" {% if interval=='year' %}selected{% endif %}>Last Year</option>
+        <option value="5years" {% if interval=='5years' %}selected{% endif %}>Last 5 Years</option>
+        <option value="custom" {% if interval=='custom' %}selected{% endif %}>Custom Date Range</option>
+      </select>
+    </div>
+
+    <div class="filter-group custom-dates" id="historyCustomDates" {% if interval != 'custom' %}style="display: none;"{% endif %}>
+      <label for="startDate">From</label>
+      <input type="date" id="startDate" name="startDate" value="{{ customStart }}" onchange="updateHistoryDateFilter()">
+      <label for="endDate">To</label>
+      <input type="date" id="endDate" name="endDate" value="{{ customEnd }}" onchange="updateHistoryDateFilter()">
     </div>
 
     <noscript>
       <button class="primary-button" type="submit">Apply</button>
     </noscript>
   </form>
+
+  {% if totalSongsPlayed is not none %}
+  <section class="track-summary-grid">
+    <article class="track-summary-card">
+      <h3>Plays in range</h3>
+      <p class="summary-value">{{ totalSongsPlayed }}</p>
+    </article>
+    {% if totalListenTime %}
+    <article class="track-summary-card">
+      <h3>Time in range</h3>
+      <p class="summary-value">{{ totalListenTime }}</p>
+    </article>
+    {% endif %}
+  </section>
+  {% endif %}
 
   <section class="track-list">
     {% if tracks %}
@@ -34,7 +69,7 @@
         {% include '_track_card.html' %}
       {% endfor %}
     {% else %}
-      <p class="loading">No history tracks found. Go listen to some music or import your history from the import section.</p>
+      <p class="loading">No history tracks found for this filter. Go listen to some music or import your history.</p>
     {% endif %}
   </section>
 
@@ -49,19 +84,50 @@
   </section>
 
   <script>
-    function updateDashboardFilters() {
+    function updateHistoryInterval() {
+      const interval = document.getElementById('interval').value;
+      const customDates = document.getElementById('historyCustomDates');
+      if (interval === 'custom') {
+        customDates.style.display = 'flex';
+        return;
+      }
+      customDates.style.display = 'none';
+      updateHistoryFilters();
+    }
+
+    function updateHistoryDateFilter() {
+      const startDate = document.getElementById('startDate').value;
+      const endDate = document.getElementById('endDate').value;
+      if (startDate && endDate) {
+        updateHistoryFilters(true);
+      }
+    }
+
+    function updateHistoryFilters(forceCustom = false) {
       const searchInput = document.getElementById('dashboardSearch');
-      const params = new URLSearchParams(window.location.search);
+      const intervalSelect = document.getElementById('interval');
+      const params = new URLSearchParams();
       const searchQuery = searchInput ? searchInput.value : '';
+      const interval = intervalSelect ? intervalSelect.value : '';
 
       if (searchQuery.trim()) {
         params.set('q', searchQuery);
-      } else {
-        params.delete('q');
       }
 
-      params.delete('page');
-      window.location = window.location.pathname + '?' + params.toString();
+      if (interval === 'custom' || forceCustom) {
+        const startDate = document.getElementById('startDate').value;
+        const endDate = document.getElementById('endDate').value;
+        if (!startDate || !endDate) {
+          return;
+        }
+        params.set('interval', 'custom');
+        params.set('startDate', startDate);
+        params.set('endDate', endDate);
+      } else if (interval) {
+        params.set('interval', interval);
+      }
+
+      window.location = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
     }
   </script>
 {% endblock %}

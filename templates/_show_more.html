@@ -1,0 +1,8 @@
+{% macro controls(total, initial) -%}
+{% if total > initial %}
+<div class="pattern-metric-toggle show-more">
+  <button type="button" class="pattern-toggle is-active" data-show-more-more>Show more</button>
+  <button type="button" class="pattern-toggle" data-show-more-less hidden>Show less</button>
+</div>
+{% endif %}
+{%- endmacro %}

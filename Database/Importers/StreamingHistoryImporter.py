@@ -82,8 +82,13 @@ class Importer:
         parsedItems = []
         for item in history:
             try:
-                name, artist, startTimestamp, timePlayed, trackUri = dataFunction(item)
-                parsedItems.append((name, artist, startTimestamp, timePlayed, trackUri))
+                parsed = dataFunction(item)
+                if len(parsed) == 5:
+                    name, artist, startTimestamp, timePlayed, trackUri = parsed
+                    skipped = None
+                else:
+                    name, artist, startTimestamp, timePlayed, trackUri, skipped = parsed
+                parsedItems.append((name, artist, startTimestamp, timePlayed, trackUri, skipped))
             except Exception as e:
                 print(f"Error parsing item: {parseError(e)}")
                 continue
@@ -98,7 +103,7 @@ class Importer:
 
     def _identifyMissingTracks(self, chunk, known):
         missingTracks = {}
-        for name, artist, startTimestamp, timePlayed, trackUri in chunk:
+        for name, artist, startTimestamp, timePlayed, trackUri, skipped in chunk:
             idKey, isUri = self._buildTrackId(trackUri, name, artist)
             if idKey is None or idKey in known:
                 continue
@@ -155,11 +160,11 @@ class Importer:
             known[name + artist] = base
 
     def _resolvePlayMetadata(self, item, known):
-        name, artist, startTimestamp, timePlayed, trackUri = item
+        name, artist, startTimestamp, timePlayed, trackUri, skipped = item
         try:
             matchedId, isUri = self._buildTrackId(trackUri, name, artist)
             if matchedId and matchedId in known:
-                meta = Client.embedPlayInfo(known[matchedId].copy(), startTimestamp, timePlayed)
+                meta = Client.embedPlayInfo(known[matchedId].copy(), startTimestamp, timePlayed, skipped=skipped)
             else:
                 if not name and not artist and not trackUri:
                     return None
@@ -171,7 +176,7 @@ class Importer:
                     return None
 
                 self._cacheTrack(known, base, trackUri, name, artist)
-                meta = Client.embedPlayInfo(base.copy(), startTimestamp, timePlayed)
+                meta = Client.embedPlayInfo(base.copy(), startTimestamp, timePlayed, skipped=skipped)
 
             return meta
         except Exception as e:
@@ -180,7 +185,7 @@ class Importer:
             if not base:
                 return None
             try:
-                return Client.embedPlayInfo(base.copy(), startTimestamp, timePlayed)
+                return Client.embedPlayInfo(base.copy(), startTimestamp, timePlayed, skipped=skipped)
             except Exception as embedError:
                 print(f"Error embedding stub play: {parseError(embedError)}")
                 return None
@@ -220,7 +225,7 @@ class Importer:
             startTimestamp = endTimestamp - timePlayed // 1000
             name = item["trackName"]
             artist = item["artistName"]
-            return name, artist, startTimestamp, timePlayed, None
+            return name, artist, startTimestamp, timePlayed, None, None
 
         yield from self._import(dataFunction, history, known, progressCallback)
 
@@ -235,7 +240,10 @@ class Importer:
             artist = item["master_metadata_album_artist_name"]
             uri = item.get("spotify_track_uri")
             trackUri = uri.split(":")[-1] if uri else None
-            return name, artist, startTimestamp, timePlayed, trackUri
+            skipped = item.get("skipped")
+            if skipped is None and item.get("reason_end") == "fwdbtn":
+                skipped = True
+            return name, artist, startTimestamp, timePlayed, trackUri, skipped
 
         yield from self._import(dataFunction, history, known, progressCallback)
 
@@ -278,6 +286,6 @@ class Importer:
 
         def dataFunction(item):
             name, mainArtist, startTimestamp, timePlayed = item
-            return name, mainArtist, startTimestamp, timePlayed, None
+            return name, mainArtist, startTimestamp, timePlayed, None, None
 
         yield from self._import(dataFunction, expand(rows), known, progressCallback)

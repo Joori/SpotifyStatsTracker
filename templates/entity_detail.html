@@ -1,5 +1,7 @@
 {% extends "layout.html" %}
+{% from "_show_more.html" import controls as show_more_controls %}
 {% block content %}
+{% set list_preview = 5 %}
   <section class="entity-hero">
     <div class="entity-hero-media">
       {% if entityType == 'artist' %}
@@ -8,13 +10,20 @@
         <img class="entity-cover" loading="lazy" src="/img/{{ username }}/tracks/{{ entity.get('imageId') }}.jpeg" alt="{{ entity.get('name', '') }}" onerror="this.style.display='none'" />
       {% endif %}
       <div class="entity-hero-copy">
-        <p class="entity-kicker">{{ 'Artist' if entityType == 'artist' else 'Playlist' if entityType == 'playlist' else 'Song' }}</p>
+        <p class="entity-kicker">{{ 'Artist' if entityType == 'artist' else 'Playlist' if entityType == 'playlist' else 'Album' if entityType == 'album' else 'Song' }}</p>
         <h1>{{ entity.get('name', 'Untitled') }}</h1>
         <p class="entity-description">
           {% if entityType == 'song' %}
-            {{ entity.get('artistsText', '') }} · {{ entity.get('album', {}).get('name', '') }}
+            {{ entity.get('artistsText', '') }} ·
+            {% if albumUrl %}
+              <a href="{{ albumUrl }}">{{ albumName or entity.get('album', {}).get('name', '') }}</a>
+            {% else %}
+              {{ entity.get('album', {}).get('name', '') }}
+            {% endif %}
           {% elif entityType == 'artist' %}
-            {{ stats.get('uniqueSongs', 0) }} unique songs in your listening history
+            {{ stats.get('uniqueSongs', 0) }} unique songs · {{ stats.get('listenShareText', '0%') }} of your listening
+          {% elif entityType == 'album' %}
+            {{ entity.get('artist', '') }} · {{ stats.get('uniqueTracks', 0) }}{% if stats.get('totalTracks') %}/{{ stats.get('totalTracks') }}{% endif %} tracks heard
           {% else %}
             {{ stats.get('plays', 0) }} plays from your listening history
           {% endif %}
@@ -23,7 +32,7 @@
           {% if entity.get('url') %}
             <a class="primary-button" href="{{ entity.get('url') }}" target="_blank" rel="noopener noreferrer">Open in Spotify</a>
           {% endif %}
-          <a class="btn-secondary" href="{{ url_for('dashboard') }}">Back to dashboard</a>
+          <a class="btn-secondary" href="{{ url_for('dashboard') }}">Back to overview</a>
         </div>
       </div>
     </div>
@@ -46,44 +55,156 @@
       <h2>Last listened</h2>
       <p>{{ stats.get('lastListenedText', 'Never') }}</p>
     </article>
+    {% if stats.get('completionRateText') %}
+    <article class="entity-stat-card">
+      <h2>Avg completion</h2>
+      <p>{{ stats.get('completionRateText') }}</p>
+    </article>
+    {% endif %}
+    {% if stats.get('peakDayPlays') %}
+    <article class="entity-stat-card">
+      <h2>Peak day</h2>
+      <p>{{ stats.get('peakDayPlays') }} plays</p>
+      <span class="summary-sub">{{ stats.get('peakDayText') }}</span>
+    </article>
+    {% endif %}
+    {% if stats.get('peakWeekPlays') %}
+    <article class="entity-stat-card">
+      <h2>Peak week</h2>
+      <p>{{ stats.get('peakWeekPlays') }} plays</p>
+      <span class="summary-sub">{{ stats.get('peakWeekText') }}</span>
+    </article>
+    {% endif %}
+    {% if stats.get('uniqueSongs') is not none and entityType != 'song' %}
+    <article class="entity-stat-card">
+      <h2>Unique songs</h2>
+      <p>{{ stats.get('uniqueSongs') }}</p>
+    </article>
+    {% endif %}
+    {% if stats.get('albumDepthText') %}
+    <article class="entity-stat-card">
+      <h2>Album depth</h2>
+      <p>{{ stats.get('albumDepthText') }}</p>
+    </article>
+    {% endif %}
+    {% if stats.get('listenShareText') and entityType == 'artist' %}
+    <article class="entity-stat-card">
+      <h2>Library share</h2>
+      <p>{{ stats.get('listenShareText') }}</p>
+    </article>
+    {% endif %}
   </section>
 
-  {% if entity.get('spotifyEmbedUrl') %}
-    <section class="entity-player-card">
-      <h2>Listen now</h2>
-      <iframe src="{{ entity.get('spotifyEmbedUrl') }}" width="100%" height="352" frameborder="0" allowtransparency="true" allow="encrypted-media"></iframe>
-    </section>
+  {% if timelineChart %}
+  <section class="plotly-card plotly-card-wide entity-timeline-card">
+    <h2>Listening over time</h2>
+    <div id="chart-entity-timeline" class="plotly-host" role="img" aria-label="Play count over time"></div>
+  </section>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" integrity="sha384-cCVCZkAjYNxaYKbM8lsArLznDF/SvMFr1jcZrvOpSTCa0W40ZAdLzHCEulnUa5i7" crossorigin="anonymous" onload="window.__entityPlotlyReady && window.__entityPlotlyReady()" onerror="window.__entityPlotlyFailed && window.__entityPlotlyFailed()"></script>
+  <script>
+    (function() {
+      const chart = {{ timelineChart | tojson }};
+      const host = document.getElementById('chart-entity-timeline');
+
+      function showError(message) {
+        if (host && !host.childElementCount) {
+          host.innerHTML = `<p class="loading">${message}</p>`;
+        }
+      }
+
+      function render() {
+        if (!host || !chart || typeof Plotly === 'undefined') {
+          return;
+        }
+        const layout = Object.assign({}, chart.layout || {});
+        layout.title = null;
+        layout.margin = Object.assign({l: 48, r: 16, t: 16, b: 56}, layout.margin || {});
+        Plotly.newPlot(host, chart.data, layout, {responsive: true, displayModeBar: false});
+      }
+
+      window.__entityPlotlyReady = render;
+      window.__entityPlotlyFailed = function() {
+        showError('Chart failed to load. Check your network connection.');
+      };
+
+      if (typeof Plotly !== 'undefined') {
+        render();
+      }
+    })();
+  </script>
+  {% endif %}
+
+  {% if albums %}
+  <section class="entity-history-card">
+    <div class="entity-history-header">
+      <h2>Albums</h2>
+      <p>Albums you’ve played from this artist.</p>
+    </div>
+    <div data-show-more data-initial="{{ list_preview }}" data-step="{{ list_preview }}">
+      <ul class="discovery-track-list entity-play-list">
+        {% for track in albums %}
+        <li data-show-more-item{% if loop.index > list_preview %} hidden{% endif %}>
+          <a href="/album/{{ track.get('id') or '' }}">
+            {% if track.get('imageId') %}
+            <img loading="lazy" src="/img/{{ username }}/tracks/{{ track.get('imageId') }}.jpeg" alt="" onerror="this.style.visibility='hidden'" />
+            {% endif %}
+            <span>
+              <strong>{{ track.get('name', '') }}</strong>
+              <span>
+                {% if track.get('artist') %}{{ track.get('artist') }}{% endif %}
+                {% if track.get('plays') %}{% if track.get('artist') %} · {% endif %}{{ track.get('plays') }} plays{% endif %}
+                {% if track.get('totalTimeListenedText') %} · {{ track.get('totalTimeListenedText') }}{% endif %}
+                {% if track.get('uniqueTrackCount') %} · {{ track.get('uniqueTrackCount') }} tracks heard{% endif %}
+                {% if track.get('albumDepthText') %} · {{ track.get('albumDepthText') }}{% endif %}
+                {% if track.get('firstListenedText') %} · First {{ track.get('firstListenedText') }}{% endif %}
+              </span>
+            </span>
+          </a>
+        </li>
+        {% endfor %}
+      </ul>
+      {{ show_more_controls(albums|length, list_preview) }}
+    </div>
+  </section>
   {% endif %}
 
   <section class="entity-history-card">
     <div class="entity-history-header">
-      <h2>Recent plays</h2>
-      <p>Latest moments this item appeared in your history.</p>
+      <h2>{% if entityType in ['artist', 'album', 'playlist'] %}Top tracks{% else %}Recent plays{% endif %}</h2>
+      <p>{% if entityType in ['artist', 'album', 'playlist'] %}Most-played tracks for this item.{% else %}Latest moments this item appeared in your history.{% endif %}</p>
     </div>
     {% if relatedTracks %}
-      <div class="track-list">
-        {% for item in relatedTracks %}
-          {% set card_href = '/song/' ~ (item.get('id') or '')%}
-          <article class="track-card compact-card"{% if card_href %} onclick="if (!event.target.closest('a')) { window.location.href='{{ card_href }}'; }" onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); if (!event.target.closest('a')) { window.location.href='{{ card_href }}'; } }" tabindex="0" role="button"{% endif %}>
-            <div class="track-number">{{ loop.index }}</div>
-            <img class="track-cover" loading="lazy" src="/img/{{ username }}/tracks/{{ item.get('imageId') }}.jpeg" alt="{{ item.get('name', '') }}" onerror="this.style.display='none'" />
-            <div class="track-details">
-              <div class="track-details-top">
-                <h3>{{ item.get('name', '') }}</h3>
-                <div class="track-meta">{{ item.get('artistsText', '') }} · {{ item.get('album', {}).get('name', '') }}</div>
-                {% if item.get('timePlayedText') %}
-                  <div class="track-meta">Played for {{ item.get('timePlayedText') }}</div>
-                {% endif %}
-                {% if item.get('playedAtText') %}
-                  <div class="track-meta">Played at {{ item.get('playedAtText') }}</div>
-                {% endif %}
-              </div>
-            </div>
-          </article>
-        {% endfor %}
+      <div data-show-more data-initial="{{ list_preview }}" data-step="{{ list_preview }}">
+        <ul class="discovery-track-list entity-play-list">
+          {% for item in relatedTracks %}
+          <li data-show-more-item{% if loop.index > list_preview %} hidden{% endif %}>
+            <a href="/song/{{ item.get('id') or '' }}">
+              {% if item.get('imageId') %}
+              <img loading="lazy" src="/img/{{ username }}/tracks/{{ item.get('imageId') }}.jpeg" alt="" onerror="this.style.visibility='hidden'" />
+              {% endif %}
+              <span>
+                <strong>{{ item.get('name', '') }}</strong>
+                <span>
+                  {% if item.get('artistsText') %}{{ item.get('artistsText') }}{% endif %}
+                  {% if item.get('album', {}).get('name') %}{% if item.get('artistsText') %} · {% endif %}{{ item.get('album', {}).get('name') }}{% endif %}
+                  {% if item.get('plays') %}
+                    {% if item.get('artistsText') or item.get('album', {}).get('name') %} · {% endif %}{{ item.get('plays') }} plays{% if item.get('totalTimeListenedText') %} · {{ item.get('totalTimeListenedText') }}{% endif %}
+                  {% elif item.get('timePlayedText') %}
+                    {% if item.get('artistsText') or item.get('album', {}).get('name') %} · {% endif %}{{ item.get('timePlayedText') }}{% if item.get('playedAtText') %} · {{ item.get('playedAtText') }}{% endif %}
+                  {% elif item.get('playedAtText') %}
+                    {% if item.get('artistsText') or item.get('album', {}).get('name') %} · {% endif %}{{ item.get('playedAtText') }}
+                  {% endif %}
+                </span>
+              </span>
+            </a>
+          </li>
+          {% endfor %}
+        </ul>
+        {{ show_more_controls(relatedTracks|length, list_preview) }}
       </div>
     {% else %}
       <p class="loading">No plays recorded for this item yet.</p>
     {% endif %}
   </section>
+  <script src="{{ url_for('static', filename='js/show-more.js') }}"></script>
 {% endblock %}

@@ -14,13 +14,15 @@ try:
     from Database.Importers.StreamingHistoryImporter import Importer
     from Database.Importers.AutoImporter import AutoImporter
     from Database.Listeners.spotifyListener import Listener
-    from Database.utils import parseError, convertToDatetime, dateToString
+    from Database.utils import parseError, convertToDatetime, dateToString, now
+    from Database import analytics as analyticsLib
 except ModuleNotFoundError:
     from Formatters.spotifyClient import Client
     from Importers.StreamingHistoryImporter import Importer
     from Importers.AutoImporter import AutoImporter
     from Listeners.spotifyListener import Listener
-    from utils import parseError, convertToDatetime, dateToString
+    from utils import parseError, convertToDatetime, dateToString, now
+    import analytics as analyticsLib
 
 class Database:
     def __init__(self,
@@ -135,9 +137,12 @@ class Database:
             "timePlayed": metadata["timePlayed"],
             "playedFrom": metadata.get("playedFrom"),
         }
+        if "skipped" in metadata:
+            entry["skipped"] = bool(metadata.get("skipped"))
         metadata.pop("playedAt")
         metadata.pop("timePlayed")
         metadata.pop("playedFrom", None)
+        metadata.pop("skipped", None)
         return entry, metadata
 
     def _paginateEntry(self, entry: dict, tracks: dict = None) -> dict:
@@ -157,6 +162,8 @@ class Database:
         meta["playedAt"] = entry["playedAt"]
         meta["timePlayed"] = entry["timePlayed"]
         meta["playedFrom"] = entry.get("playedFrom", None)
+        if "skipped" in entry:
+            meta["skipped"] = entry.get("skipped")
 
         return meta
 
@@ -571,6 +578,145 @@ class Database:
         artists = self.getArtistsStats(startDate, endDate)
         compKeys = (by, "totalTimeListened", "name")
         return self._sortTopStats(artists, compKeys, by)
+
+    def getAlbumsStats(self, startDate: datetime.datetime = None, endDate: datetime.datetime = None) -> list:
+        tracks = self._loadTracks()
+        entries = self.filterByInterval(self._loadEntries(), startDate, endDate)
+        albums = {}
+
+        for entry in entries:
+            metadata = self._paginateEntry(entry, tracks)
+            if metadata is None:
+                continue
+            album = metadata.get("album") or {}
+            albumId = str(album.get("id") or "")
+            if not albumId or albumId == "0":
+                continue
+            if albumId not in albums:
+                primaryArtist = ""
+                artists = metadata.get("artists") or []
+                if artists and isinstance(artists[0], dict):
+                    primaryArtist = artists[0].get("name", "")
+                albums[albumId] = {
+                    "id": albumId,
+                    "name": album.get("name", "Unknown album"),
+                    "url": album.get("url", ""),
+                    "imageId": album.get("imageId") or metadata.get("imageId"),
+                    "totalTracks": album.get("totalTracks", 0),
+                    "artist": primaryArtist,
+                    "plays": 0,
+                    "totalTimeListened": 0,
+                    "uniqueTracks": set(),
+                    "firstListenedAt": entry.get("playedAt"),
+                }
+            albums[albumId]["plays"] += 1
+            albums[albumId]["totalTimeListened"] += entry.get("timePlayed", 0)
+            albums[albumId]["uniqueTracks"].add(entry.get("id"))
+
+        normalized = []
+        for album in albums.values():
+            uniqueCount = len(album["uniqueTracks"])
+            totalTracks = album.get("totalTracks") or 0
+            album["uniqueTrackCount"] = uniqueCount
+            album["albumDepth"] = round(uniqueCount / totalTracks * 100, 1) if totalTracks else None
+            album.pop("uniqueTracks", None)
+            normalized.append(album)
+        return normalized
+
+    def getTopAlbums(self, startDate: datetime.datetime = None, endDate: datetime.datetime = None, by: str = "plays") -> list:
+        albums = self.getAlbumsStats(startDate, endDate)
+        compKeys = (by, "totalTimeListened", "name")
+        return self._sortTopStats(albums, compKeys, by)
+
+    def getContextsStats(self, startDate: datetime.datetime = None, endDate: datetime.datetime = None) -> list:
+        entries = self.filterByInterval(self._loadEntries(), startDate, endDate)
+        contexts = {}
+        for entry in entries:
+            playedFrom = entry.get("playedFrom")
+            if not playedFrom:
+                continue
+            if playedFrom not in contexts:
+                contextType = playedFrom.split(":", 1)[0] if ":" in playedFrom else "unknown"
+                contexts[playedFrom] = {
+                    "id": playedFrom,
+                    "name": self.playlistName(playedFrom) or playedFrom.split(":", 1)[-1],
+                    "contextType": contextType,
+                    "plays": 0,
+                    "totalTimeListened": 0,
+                    "uniqueSongs": set(),
+                    "firstListenedAt": entry.get("playedAt"),
+                }
+            contexts[playedFrom]["plays"] += 1
+            contexts[playedFrom]["totalTimeListened"] += entry.get("timePlayed", 0)
+            contexts[playedFrom]["uniqueSongs"].add(entry.get("id"))
+
+        normalized = []
+        for ctx in contexts.values():
+            ctx["uniqueSongCount"] = len(ctx["uniqueSongs"])
+            ctx.pop("uniqueSongs", None)
+            normalized.append(ctx)
+        return normalized
+
+    def getTopContexts(self, startDate: datetime.datetime = None, endDate: datetime.datetime = None, by: str = "plays") -> list:
+        contexts = self.getContextsStats(startDate, endDate)
+        for ctx in contexts:
+            ctx.setdefault("name", ctx.get("id", ""))
+        compKeys = (by, "totalTimeListened", "name")
+        return self._sortTopStats(contexts, compKeys, by)
+
+    def getStreakStats(self, startDate=None, endDate=None) -> dict:
+        return analyticsLib.streakStats(self._loadEntries(), startDate, endDate, nowDt=now())
+
+    def getSessionStats(self, startDate=None, endDate=None) -> dict:
+        return analyticsLib.sessionStats(self._loadEntries(), startDate, endDate)
+
+    def getTimePatterns(self, startDate=None, endDate=None) -> dict:
+        return analyticsLib.timePatterns(self._loadEntries(), startDate, endDate)
+
+    def getMonthlyStory(self, startDate=None, endDate=None) -> list:
+        return analyticsLib.monthlyStory(self._loadEntries(), self._loadTracks(), startDate, endDate)
+
+    def getPeakObsession(self, startDate=None, endDate=None, limit=25) -> dict:
+        return analyticsLib.peakObsession(self._loadEntries(), self._loadTracks(), startDate, endDate, limit)
+
+    def getTrendingSongs(self, startDate=None, endDate=None, limit=10) -> list:
+        return analyticsLib.trendingSongs(self._loadEntries(), self._loadTracks(), startDate, endDate, limit)
+
+    def getOftenAbandoned(self, startDate=None, endDate=None, minPlays=5, limit=10) -> list:
+        return analyticsLib.oftenAbandoned(self._loadEntries(), self._loadTracks(), startDate, endDate, minPlays, limit)
+
+    def getMostCompleted(self, startDate=None, endDate=None, minPlays=5, limit=10) -> list:
+        return analyticsLib.mostCompleted(self._loadEntries(), self._loadTracks(), startDate, endDate, minPlays, limit)
+
+    def getCompletionLists(self, startDate=None, endDate=None, minPlays=5, limit=100) -> dict:
+        return analyticsLib.completionLists(self._loadEntries(), self._loadTracks(), startDate, endDate, minPlays, limit)
+
+    def getSkipStats(self, startDate=None, endDate=None, minPlays=5, limit=10) -> dict:
+        return analyticsLib.skipStats(self._loadEntries(), self._loadTracks(), startDate, endDate, minPlays, limit)
+
+    def getCoListening(self, startDate=None, endDate=None, limit=15, minCount=3) -> dict:
+        return analyticsLib.coListening(self._loadEntries(), self._loadTracks(), startDate, endDate, limit, minCount)
+
+    def getDiscoveryDays(self, startDate=None, endDate=None, limit=10) -> dict:
+        return analyticsLib.discoveryDays(self._loadEntries(), self._loadTracks(), startDate, endDate, limit)
+
+    def getHeaviestDay(self, startDate=None, endDate=None) -> dict | None:
+        return analyticsLib.heaviestDay(self._loadEntries(), startDate, endDate)
+
+    def getLongestSessions(self, startDate=None, endDate=None, limit=10) -> list:
+        return analyticsLib.longestSessions(self._loadEntries(), self._loadTracks(), startDate, endDate, limit)
+
+    def getHeaviestDays(self, startDate=None, endDate=None, limit=10) -> list:
+        return analyticsLib.heaviestDays(self._loadEntries(), self._loadTracks(), startDate, endDate, limit)
+
+    def getSongPeak(self, songId: str) -> dict:
+        return analyticsLib.songPeak(self._loadEntries(), songId)
+
+    def getSongTimeline(self, songId: str, everyHours: int = 24 * 7) -> list:
+        return analyticsLib.songTimeline(self._loadEntries(), songId, everyHours)
+
+    def getCompletionRate(self, songId: str = None, entries: list = None) -> float | None:
+        return analyticsLib.completionRate(entries or self._loadEntries(), self._loadTracks(), songId)
 
     def getIntervalHeatmap(self, startDate: datetime.datetime = None, endDate: datetime.datetime = None, every: int = 24) -> list[tuple[datetime.datetime, datetime.datetime, float, int]]:
         """

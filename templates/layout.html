@@ -53,10 +53,10 @@
       <nav class="nav-links" aria-label="Primary">
         {% set currentQuery = request.args.get('q', '') %}
         {% set currentEndpoint = request.endpoint %}
-        <a href="{{ url_for('dashboard', q=currentQuery) if currentQuery else url_for('dashboard') }}" class="{{ 'active' if currentEndpoint == 'dashboard' else '' }}" {% if currentEndpoint == 'dashboard' %}aria-current="page"{% endif %}>Dashboard</a>
+        <a href="{{ url_for('dashboard', q=currentQuery) if currentQuery else url_for('dashboard') }}" class="{{ 'active' if currentEndpoint == 'dashboard' else '' }}" {% if currentEndpoint == 'dashboard' %}aria-current="page"{% endif %}>Overview</a>
+        <a href="{{ url_for('explorePage', q=currentQuery) if currentQuery else url_for('explorePage') }}" class="{{ 'active' if currentEndpoint == 'explorePage' else '' }}" {% if currentEndpoint == 'explorePage' %}aria-current="page"{% endif %}>Explore</a>
+        <a href="{{ url_for('insightsPage') }}" class="{{ 'active' if currentEndpoint == 'insightsPage' else '' }}" {% if currentEndpoint == 'insightsPage' %}aria-current="page"{% endif %}>Insights</a>
         <a href="{{ url_for('historyPage', q=currentQuery) if currentQuery else url_for('historyPage') }}" class="{{ 'active' if currentEndpoint == 'historyPage' else '' }}" {% if currentEndpoint == 'historyPage' %}aria-current="page"{% endif %}>History</a>
-        <a href="{{ url_for('topSongsPage', q=currentQuery) if currentQuery else url_for('topSongsPage') }}" class="{{ 'active' if currentEndpoint == 'topSongsPage' else '' }}" {% if currentEndpoint == 'topSongsPage' %}aria-current="page"{% endif %}>Top Songs</a>
-        <a href="{{ url_for('topArtistsPage', q=currentQuery) if currentQuery else url_for('topArtistsPage') }}" class="{{ 'active' if currentEndpoint == 'topArtistsPage' else '' }}" {% if currentEndpoint == 'topArtistsPage' %}aria-current="page"{% endif %}>Top Artists</a>
         <a href="{{ url_for('importPage') }}" class="{{ 'active' if currentEndpoint == 'importPage' else '' }}" {% if currentEndpoint == 'importPage' %}aria-current="page"{% endif %}>Import</a>
         <a href="/login" class="nav-logout">Logout</a>
       </nav>

@@ -37,11 +37,13 @@ class Client:
         }
     
     @staticmethod
-    def embedPlayInfo(track, timestamp, timePlayed, context=None):
+    def embedPlayInfo(track, timestamp, timePlayed, context=None, skipped=None):
         playedAtTimestamp = timeToInt(timestamp)
         
         track["playedAt"] = playedAtTimestamp
         track["timePlayed"] = timePlayed
+        if skipped is not None:
+            track["skipped"] = bool(skipped)
 
         playedFrom = None
         if context:

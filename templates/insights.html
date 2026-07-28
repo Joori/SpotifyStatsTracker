@@ -1,0 +1,785 @@
+{% extends "layout.html" %}
+{% from "_show_more.html" import controls as show_more_controls %}
+{% block content %}
+{% set list_preview = 5 %}
+{% set track_preview = 5 %}
+{% set monthly_preview = 4 %}
+{% set completion_preview = 3 %}
+<header class="page-header">
+  <h1>Insights</h1>
+  <p>How you listen — streaks, patterns, obsessions, and discovery for {{ intervalLabel or 'All Time' }}.</p>
+</header>
+
+<form class="filter-section dashboard-filter" method="get" action="{{ url_for('insightsPage') }}" aria-label="Time period filter">
+  <div class="filter-group">
+    <label for="interval">Time period</label>
+    <select id="interval" name="interval" onchange="updateInsightsInterval()">
+      <option value="" {% if not interval %}selected{% endif %}>All Time</option>
+      <option value="day" {% if interval=='day' %}selected{% endif %}>Last Day</option>
+      <option value="week" {% if interval=='week' %}selected{% endif %}>Last Week</option>
+      <option value="month" {% if interval=='month' %}selected{% endif %}>Last Month</option>
+      <option value="year" {% if interval=='year' %}selected{% endif %}>Last Year</option>
+      <option value="5years" {% if interval=='5years' %}selected{% endif %}>Last 5 Years</option>
+      <option value="custom" {% if interval=='custom' %}selected{% endif %}>Custom Date Range</option>
+    </select>
+  </div>
+  <div class="filter-group custom-dates" id="insightsCustomDates" {% if interval != 'custom' %}style="display:none"{% endif %}>
+    <label for="startDate">From</label>
+    <input type="date" id="startDate" name="startDate" value="{{ customStart }}" onchange="updateInsightsDateFilter()">
+    <label for="endDate">To</label>
+    <input type="date" id="endDate" name="endDate" value="{{ customEnd }}" onchange="updateInsightsDateFilter()">
+  </div>
+  <noscript><button class="primary-button" type="submit">Apply</button></noscript>
+</form>
+
+<nav class="insights-jump" aria-label="Insights sections">
+  <a href="#streaks">Streaks</a>
+  <a href="#patterns">Patterns</a>
+  <a href="#monthly">Monthly</a>
+  <a href="#obsessions">Obsessions</a>
+  <a href="#together">Together</a>
+  <a href="#discovery">Discovery</a>
+  {% if skipStats and skipStats.available %}<a href="#skips">Skips</a>{% endif %}
+</nav>
+
+<section class="track-summary-grid" aria-label="Period summary">
+  <article class="track-summary-card">
+    <h3>Plays</h3>
+    <p class="summary-value">{{ summary.totalPlays }}</p>
+  </article>
+  <article class="track-summary-card">
+    <h3>Listen time</h3>
+    <p class="summary-value">{{ summary.totalTimeText }}</p>
+  </article>
+  <article class="track-summary-card">
+    <h3>Avg daily</h3>
+    <p class="summary-value">{{ summary.avgDailyListenTime }}</p>
+  </article>
+  <article class="track-summary-card">
+    <h3>Top 10 share</h3>
+    <p class="summary-value">{{ summary.songConcentration }}%</p>
+  </article>
+</section>
+
+<section class="insights-section" id="streaks">
+  <header class="insights-section-header">
+    <h2>Streaks & sessions</h2>
+    <p>Consecutive listening days and how your plays cluster into sessions.</p>
+  </header>
+  <div class="track-summary-grid">
+    <article class="track-summary-card">
+      <h3>Current streak</h3>
+      <p class="summary-value">{{ streakStats.currentStreak }} days</p>
+    </article>
+    <article class="track-summary-card">
+      <h3>Longest streak</h3>
+      <p class="summary-value">{{ streakStats.longestStreak }} days</p>
+    </article>
+    <article class="track-summary-card">
+      <h3>Sessions</h3>
+      <p class="summary-value">{{ sessionStats.sessionCount }}</p>
+    </article>
+    <article class="track-summary-card">
+      <h3>Avg session</h3>
+      <p class="summary-value">{{ sessionStats.avgSessionText }}</p>
+    </article>
+  </div>
+
+  <div class="insights-split">
+    <div>
+      <h3>Longest sessions</h3>
+      {% if longestSessions %}
+      <div data-show-more data-initial="{{ list_preview }}" data-step="{{ list_preview }}">
+        <ul class="insight-list discovery-day-list">
+          {% for session in longestSessions %}
+          <li class="discovery-day" data-show-more-item{% if loop.index > list_preview %} hidden{% endif %}>
+            <button
+              type="button"
+              class="discovery-day-toggle"
+              aria-expanded="false"
+              aria-controls="session-tracks-{{ loop.index }}"
+              data-discovery-toggle
+            >
+              <span class="discovery-day-summary">
+                <strong>{{ session.totalTimeText }}</strong>
+                <span>{{ session.dateText }} · {{ session.timeRangeText }} · {{ session.plays }} plays · {{ session.uniqueSongs }} songs</span>
+              </span>
+              <span class="discovery-day-chevron" aria-hidden="true"></span>
+            </button>
+            <div class="discovery-day-tracks" id="session-tracks-{{ loop.index }}" hidden>
+              {% if session.tracks %}
+              <div data-show-more data-initial="{{ track_preview }}" data-step="{{ track_preview }}">
+                <ul class="discovery-track-list">
+                  {% for song in session.tracks %}
+                  <li data-show-more-item{% if loop.index > track_preview %} hidden{% endif %}>
+                    <a href="/song/{{ song.id }}">
+                      {% if song.imageId %}
+                      <img loading="lazy" src="/img/{{ username }}/tracks/{{ song.imageId }}.jpeg" alt="" onerror="this.style.visibility='hidden'" />
+                      {% endif %}
+                      <span>
+                        <strong>{{ song.name }}</strong>
+                        <span>{{ song.artistsText }} · {{ song.plays }} plays · {{ song.totalTimeListenedText }}</span>
+                      </span>
+                    </a>
+                  </li>
+                  {% endfor %}
+                </ul>
+                {{ show_more_controls(session.tracks|length, track_preview) }}
+              </div>
+              {% else %}
+              <p class="loading">No track details for this session.</p>
+              {% endif %}
+            </div>
+          </li>
+          {% endfor %}
+        </ul>
+        {{ show_more_controls(longestSessions|length, list_preview) }}
+      </div>
+      {% else %}
+      <p class="loading">No sessions in range.</p>
+      {% endif %}
+    </div>
+
+    <div>
+      <h3>Heaviest days</h3>
+      {% if heaviestDays %}
+      <div data-show-more data-initial="{{ list_preview }}" data-step="{{ list_preview }}">
+        <ul class="insight-list discovery-day-list">
+          {% for day in heaviestDays %}
+          <li class="discovery-day" data-show-more-item{% if loop.index > list_preview %} hidden{% endif %}>
+            <button
+              type="button"
+              class="discovery-day-toggle"
+              aria-expanded="false"
+              aria-controls="heavy-day-tracks-{{ loop.index }}"
+              data-discovery-toggle
+            >
+              <span class="discovery-day-summary">
+                <strong>{{ day.dateText }}</strong>
+                <span>{{ day.totalTimeText }} · {{ day.plays }} plays · {{ day.uniqueSongs }} songs</span>
+              </span>
+              <span class="discovery-day-chevron" aria-hidden="true"></span>
+            </button>
+            <div class="discovery-day-tracks" id="heavy-day-tracks-{{ loop.index }}" hidden>
+              {% if day.tracks %}
+              <div data-show-more data-initial="{{ track_preview }}" data-step="{{ track_preview }}">
+                <ul class="discovery-track-list">
+                  {% for song in day.tracks %}
+                  <li data-show-more-item{% if loop.index > track_preview %} hidden{% endif %}>
+                    <a href="/song/{{ song.id }}">
+                      {% if song.imageId %}
+                      <img loading="lazy" src="/img/{{ username }}/tracks/{{ song.imageId }}.jpeg" alt="" onerror="this.style.visibility='hidden'" />
+                      {% endif %}
+                      <span>
+                        <strong>{{ song.name }}</strong>
+                        <span>{{ song.artistsText }} · {{ song.plays }} plays · {{ song.totalTimeListenedText }}</span>
+                      </span>
+                    </a>
+                  </li>
+                  {% endfor %}
+                </ul>
+                {{ show_more_controls(day.tracks|length, track_preview) }}
+              </div>
+              {% else %}
+              <p class="loading">No track details for this day.</p>
+              {% endif %}
+            </div>
+          </li>
+          {% endfor %}
+        </ul>
+        {{ show_more_controls(heaviestDays|length, list_preview) }}
+      </div>
+      {% else %}
+      <p class="loading">No listening days in range.</p>
+      {% endif %}
+    </div>
+  </div>
+</section>
+
+<section class="insights-section" id="patterns">
+  <header class="insights-section-header">
+    <h2>Time patterns</h2>
+    <p>When you listen — by hour, weekday, and month.</p>
+  </header>
+  <div class="pattern-metric-toggle" role="group" aria-label="Chart metric">
+    <button type="button" class="pattern-toggle is-active" data-metric="plays">Plays</button>
+    <button type="button" class="pattern-toggle" data-metric="ms">Listen time</button>
+  </div>
+  <div class="insights-charts">
+    <div class="plotly-card">
+      <h3>Hour of day</h3>
+      <div id="chart-hour" class="plotly-host" role="img" aria-label="Plays by hour of day"></div>
+    </div>
+    <div class="plotly-card">
+      <h3>Day of week</h3>
+      <div id="chart-dow" class="plotly-host" role="img" aria-label="Plays by day of week"></div>
+    </div>
+    <div class="plotly-card plotly-card-wide">
+      <h3>Month of year</h3>
+      <div id="chart-month" class="plotly-host" role="img" aria-label="Plays by month"></div>
+    </div>
+  </div>
+</section>
+
+<section class="insights-section" id="monthly">
+  <header class="insights-section-header">
+    <h2>Monthly story</h2>
+    <p>Favorites and variety month by month.</p>
+  </header>
+  <div class="plotly-card plotly-card-wide">
+    <h3>Unique songs & artists</h3>
+    <div id="chart-variety" class="plotly-host" role="img" aria-label="Unique songs and artists per month"></div>
+  </div>
+  {% if monthlyStory %}
+  <div data-show-more data-initial="{{ monthly_preview }}" data-step="{{ monthly_preview }}" data-noun="older months" data-less-label="Show fewer months">
+    <div class="monthly-grid">
+      {% for month in monthlyStory|reverse %}
+      <article class="monthly-card" data-show-more-item{% if loop.index > monthly_preview %} hidden{% endif %}>
+        <h3>{{ month.label }}</h3>
+        <p class="monthly-meta">{{ month.uniqueSongs }} songs · {{ month.uniqueArtists }} artists · {{ month.totalTimeText }}</p>
+        {% if month.topSong %}
+        <a class="monthly-fav" href="/song/{{ month.topSong.id }}">
+          <img loading="lazy" src="/img/{{ username }}/tracks/{{ month.topSong.imageId }}.jpeg" alt="" onerror="this.style.display='none'" />
+          <span>
+            <strong>{{ month.topSong.name }}</strong>
+            <small>{{ month.topSong.plays }} plays</small>
+          </span>
+        </a>
+        {% endif %}
+        {% if month.topArtist %}
+        {% if month.topArtist.id %}
+        <a class="monthly-fav" href="/artist/{{ month.topArtist.id }}">
+        {% else %}
+        <div class="monthly-fav">
+        {% endif %}
+          {% if month.topArtist.imageId %}
+          <img loading="lazy" src="/img/{{ username }}/artists/{{ month.topArtist.imageId }}.jpeg" alt="" onerror="this.style.visibility='hidden'" />
+          {% else %}
+          <span class="monthly-fav-fallback" aria-hidden="true"></span>
+          {% endif %}
+          <span>
+            <strong>{{ month.topArtist.name }}</strong>
+            <small>{{ month.topArtist.plays }} plays</small>
+          </span>
+        {% if month.topArtist.id %}
+        </a>
+        {% else %}
+        </div>
+        {% endif %}
+        {% endif %}
+        <a class="monthly-link" href="{{ url_for('explorePage', tab='songs', interval='custom', startDate=month.key ~ '-01', endDate=month.key ~ '-28') }}">Open in Explore</a>
+      </article>
+      {% endfor %}
+    </div>
+    {{ show_more_controls(monthlyStory|length, monthly_preview) }}
+  </div>
+  {% else %}
+  <p class="loading">No monthly data for this range.</p>
+  {% endif %}
+</section>
+
+<section class="insights-section" id="obsessions">
+  <header class="insights-section-header">
+    <h2>Obsessions & trends</h2>
+    <p>Peak repeats, rising tracks, and songs you often leave early.</p>
+  </header>
+  <div class="insights-split">
+    <div>
+      <h3>Peak obsession</h3>
+      {% if peakObsession and peakObsession.days %}
+      <p class="insights-note">Highest single-day play counts.</p>
+      <div data-show-more data-initial="{{ completion_preview }}" data-step="{{ completion_preview }}">
+        <div class="peak-obsession-list">
+          {% for item in peakObsession.days %}
+          <a class="insight-entity" href="/song/{{ item.trackId }}" data-show-more-item{% if loop.index > completion_preview %} hidden{% endif %}>
+            {% if item.imageId %}
+            <img loading="lazy" src="/img/{{ username }}/tracks/{{ item.imageId }}.jpeg" alt="" onerror="this.style.display='none'" />
+            {% endif %}
+            <div>
+              <strong>{{ item.name }}</strong>
+              <span>{{ item.artistsText }}</span>
+              <span>{{ item.plays }} plays on {{ item.bucketText or item.bucket }}</span>
+            </div>
+          </a>
+          {% endfor %}
+        </div>
+        {{ show_more_controls(peakObsession.days|length, completion_preview) }}
+      </div>
+      {% if peakObsession.weeks %}
+      <div class="insights-subblock">
+        <h3>Peak weeks</h3>
+        <p class="insights-note">Highest single-week play counts.</p>
+        <div data-show-more data-initial="{{ completion_preview }}" data-step="{{ completion_preview }}">
+          <div class="peak-obsession-list">
+            {% for item in peakObsession.weeks %}
+            <a class="insight-entity" href="/song/{{ item.trackId }}" data-show-more-item{% if loop.index > completion_preview %} hidden{% endif %}>
+              {% if item.imageId %}
+              <img loading="lazy" src="/img/{{ username }}/tracks/{{ item.imageId }}.jpeg" alt="" onerror="this.style.display='none'" />
+              {% endif %}
+              <div>
+                <strong>{{ item.name }}</strong>
+                <span>{{ item.artistsText }}</span>
+                <span>{{ item.plays }} plays · {{ item.bucketText or item.bucket }}</span>
+              </div>
+            </a>
+            {% endfor %}
+          </div>
+          {{ show_more_controls(peakObsession.weeks|length, completion_preview) }}
+        </div>
+      </div>
+      {% endif %}
+      {% else %}
+      <p class="loading">No peak day in range.</p>
+      {% endif %}
+    </div>
+    <div>
+      <h3>Trending</h3>
+      {% if trendingSongs %}
+      <div data-show-more data-initial="{{ list_preview }}" data-step="{{ list_preview }}">
+        <ul class="insight-list">
+          {% for song in trendingSongs %}
+          <li data-show-more-item{% if loop.index > list_preview %} hidden{% endif %}>
+            <a href="/song/{{ song.id }}">
+              <strong>{{ song.name }}</strong>
+              <span>+{{ song.lift }} plays vs prior period</span>
+            </a>
+          </li>
+          {% endfor %}
+        </ul>
+        {{ show_more_controls(trendingSongs|length, list_preview) }}
+      </div>
+      {% else %}
+      <p class="loading">Need a bounded time range to compute trends.</p>
+      {% endif %}
+    </div>
+  </div>
+  <div class="completion-avgs" id="completion-avgs" data-preview="{{ completion_preview }}" data-limit="100">
+    <div class="filter-section completion-threshold-bar" aria-label="Minimum plays threshold">
+      <div class="filter-group completion-threshold">
+        <label for="minPlays">Min plays</label>
+        <input type="number" id="minPlays" name="minPlays" min="1" max="9999" value="{{ minPlays }}" />
+      </div>
+    </div>
+    <div class="insights-split">
+      <div class="insights-subblock">
+        <h3>Often abandoned</h3>
+        <p class="insights-note" data-completion-note="abandoned">Lowest average completion among songs with at least {{ minPlays }} plays.</p>
+        <div id="often-abandoned-root">
+          {% if oftenAbandoned %}
+          <div data-show-more data-initial="{{ completion_preview }}" data-step="{{ completion_preview }}">
+            <ul class="insight-list">
+              {% for song in oftenAbandoned %}
+              <li data-show-more-item{% if loop.index > completion_preview %} hidden{% endif %}>
+                <a href="/song/{{ song.id }}">
+                  <strong>{{ song.name }}</strong>
+                  <span>{{ song.avgCompletionText }} avg completion · {{ song.plays }} plays</span>
+                </a>
+              </li>
+              {% endfor %}
+            </ul>
+            {{ show_more_controls(oftenAbandoned|length, completion_preview) }}
+          </div>
+          {% else %}
+          <p class="loading">Not enough plays to score abandonment.</p>
+          {% endif %}
+        </div>
+      </div>
+      <div class="insights-subblock">
+        <h3>Most completed</h3>
+        <p class="insights-note" data-completion-note="completed">Highest average completion among songs with at least {{ minPlays }} plays.</p>
+        <div id="most-completed-root">
+          {% if mostCompleted %}
+          <div data-show-more data-initial="{{ completion_preview }}" data-step="{{ completion_preview }}">
+            <ul class="insight-list">
+              {% for song in mostCompleted %}
+              <li data-show-more-item{% if loop.index > completion_preview %} hidden{% endif %}>
+                <a href="/song/{{ song.id }}">
+                  <strong>{{ song.name }}</strong>
+                  <span>{{ song.avgCompletionText }} avg completion · {{ song.plays }} plays</span>
+                </a>
+              </li>
+              {% endfor %}
+            </ul>
+            {{ show_more_controls(mostCompleted|length, completion_preview) }}
+          </div>
+          {% else %}
+          <p class="loading">Not enough plays to score completion.</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="insights-section" id="together">
+  <header class="insights-section-header">
+    <h2>Listened together</h2>
+    <p>Tracks that share sessions (≤30 min gaps) or follow each other.</p>
+  </header>
+  <div class="insights-split">
+    <div>
+      <h3>Co-occur in sessions</h3>
+      {% if coListening and coListening.pairs %}
+      <div data-show-more data-initial="{{ list_preview }}" data-step="{{ list_preview }}">
+        <ul class="insight-list">
+          {% for pair in coListening.pairs %}
+          <li data-show-more-item{% if loop.index > list_preview %} hidden{% endif %}>
+            <div class="insight-list-body">
+              <strong>
+                <a href="/song/{{ pair.a.id }}">{{ pair.a.name }}</a>
+                <span class="pair-sep">+</span>
+                <a href="/song/{{ pair.b.id }}">{{ pair.b.name }}</a>
+              </strong>
+              <span>{{ pair.count }}×</span>
+            </div>
+          </li>
+          {% endfor %}
+        </ul>
+        {{ show_more_controls(coListening.pairs|length, list_preview) }}
+      </div>
+      {% else %}
+      <p class="loading">No strong co-listening pairs yet.</p>
+      {% endif %}
+    </div>
+    <div>
+      <h3>Often next</h3>
+      {% if coListening and coListening.transitions %}
+      <div data-show-more data-initial="{{ list_preview }}" data-step="{{ list_preview }}">
+        <ul class="insight-list">
+          {% for pair in coListening.transitions %}
+          <li data-show-more-item{% if loop.index > list_preview %} hidden{% endif %}>
+            <div class="insight-list-body">
+              <strong>
+                <a href="/song/{{ pair.a.id }}">{{ pair.a.name }}</a>
+                <span class="pair-sep">→</span>
+                <a href="/song/{{ pair.b.id }}">{{ pair.b.name }}</a>
+              </strong>
+              <span>{{ pair.count }}×</span>
+            </div>
+          </li>
+          {% endfor %}
+        </ul>
+        {{ show_more_controls(coListening.transitions|length, list_preview) }}
+      </div>
+      {% else %}
+      <p class="loading">No strong transitions yet.</p>
+      {% endif %}
+    </div>
+  </div>
+</section>
+
+<section class="insights-section" id="discovery">
+  <header class="insights-section-header">
+    <h2>Discovery</h2>
+    <p>Days and tracks that introduced music you kept listening to.</p>
+  </header>
+  <div class="track-summary-grid">
+    <article class="track-summary-card">
+      <h3>New in range</h3>
+      <p class="summary-value">{{ discoveryDays.newInRange if discoveryDays else 0 }}</p>
+    </article>
+    <article class="track-summary-card">
+      <h3>Share of plays</h3>
+      <p class="summary-value">{{ discoveryDays.newPlayShare if discoveryDays else 0 }}%</p>
+    </article>
+  </div>
+  {% if discoveryDays and discoveryDays.bestDays %}
+  <h3>Best discovery days</h3>
+  <div data-show-more data-initial="{{ list_preview }}" data-step="{{ list_preview }}">
+    <ul class="insight-list discovery-day-list">
+      {% for day in discoveryDays.bestDays %}
+      <li class="discovery-day" data-show-more-item{% if loop.index > list_preview %} hidden{% endif %}>
+        <button
+          type="button"
+          class="discovery-day-toggle"
+          aria-expanded="false"
+          aria-controls="discovery-tracks-{{ loop.index }}"
+          data-discovery-toggle
+        >
+          <span class="discovery-day-summary">
+            <strong>{{ day.dateText }}</strong>
+            <span>{{ day.discoveries }} first hears · {{ day.legacyPlays }} later plays · {{ day.legacyTimeText }}</span>
+          </span>
+          <span class="discovery-day-chevron" aria-hidden="true"></span>
+        </button>
+        <div class="discovery-day-tracks" id="discovery-tracks-{{ loop.index }}" hidden>
+          {% if day.tracks %}
+          <div data-show-more data-initial="{{ track_preview }}" data-step="{{ track_preview }}">
+            <ul class="discovery-track-list">
+              {% for song in day.tracks %}
+              <li data-show-more-item{% if loop.index > track_preview %} hidden{% endif %}>
+                <a href="/song/{{ song.id }}">
+                  {% if song.imageId %}
+                  <img loading="lazy" src="/img/{{ username }}/tracks/{{ song.imageId }}.jpeg" alt="" onerror="this.style.visibility='hidden'" />
+                  {% endif %}
+                  <span>
+                    <strong>{{ song.name }}</strong>
+                    <span>{{ song.artistsText }} · {{ song.plays }} plays · {{ song.totalTimeListenedText }}</span>
+                  </span>
+                </a>
+              </li>
+              {% endfor %}
+            </ul>
+            {{ show_more_controls(day.tracks|length, track_preview) }}
+          </div>
+          {% else %}
+          <p class="loading">No track details for this day.</p>
+          {% endif %}
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {{ show_more_controls(discoveryDays.bestDays|length, list_preview) }}
+  </div>
+  {% else %}
+  <p class="loading">No discovery days in range.</p>
+  {% endif %}
+</section>
+
+{% if skipStats and skipStats.available %}
+<section class="insights-section" id="skips">
+  <header class="insights-section-header">
+    <h2>Skips</h2>
+    <p>From Extended Streaming History imports that include skip flags.</p>
+  </header>
+  <div class="insights-split">
+    <div>
+      <h3>Most skipped</h3>
+      <div data-show-more data-initial="{{ list_preview }}" data-step="{{ list_preview }}">
+        <ul class="insight-list">
+          {% for song in skipStats.mostSkipped %}
+          <li data-show-more-item{% if loop.index > list_preview %} hidden{% endif %}>
+            <a href="/song/{{ song.id }}">
+              <strong>{{ song.name }}</strong>
+              <span>{{ song.skipRateText }} · {{ song.skips }}/{{ song.plays }}</span>
+            </a>
+          </li>
+          {% endfor %}
+        </ul>
+        {{ show_more_controls(skipStats.mostSkipped|length, list_preview) }}
+      </div>
+    </div>
+    <div>
+      <h3>Least skipped</h3>
+      <div data-show-more data-initial="{{ list_preview }}" data-step="{{ list_preview }}">
+        <ul class="insight-list">
+          {% for song in skipStats.leastSkipped %}
+          <li data-show-more-item{% if loop.index > list_preview %} hidden{% endif %}>
+            <a href="/song/{{ song.id }}">
+              <strong>{{ song.name }}</strong>
+              <span>{{ song.skipRateText }} · {{ song.skips }}/{{ song.plays }}</span>
+            </a>
+          </li>
+          {% endfor %}
+        </ul>
+        {{ show_more_controls(skipStats.leastSkipped|length, list_preview) }}
+      </div>
+    </div>
+  </div>
+</section>
+{% endif %}
+
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" integrity="sha384-cCVCZkAjYNxaYKbM8lsArLznDF/SvMFr1jcZrvOpSTCa0W40ZAdLzHCEulnUa5i7" crossorigin="anonymous" onload="window.__plotlyReady && window.__plotlyReady()" onerror="window.__plotlyFailed && window.__plotlyFailed()"></script>
+<script>
+  const charts = {{ charts | tojson }};
+  const chartHosts = {
+    hour: document.getElementById('chart-hour'),
+    dow: document.getElementById('chart-dow'),
+    month: document.getElementById('chart-month'),
+    variety: document.getElementById('chart-variety'),
+  };
+
+  function showChartError(message) {
+    Object.values(chartHosts).forEach(host => {
+      if (!host || host.childElementCount) {
+        return;
+      }
+      host.innerHTML = `<p class="loading">${message}</p>`;
+    });
+  }
+
+  function renderChart(key, metric) {
+    const host = chartHosts[key];
+    const figure = charts[key];
+    if (!host || !figure || typeof Plotly === 'undefined') {
+      return;
+    }
+    let data = figure.data;
+    let layout = figure.layout ? Object.assign({}, figure.layout) : {};
+    if (metric && figure.dataByMetric && figure.dataByMetric[metric]) {
+      data = figure.dataByMetric[metric];
+      layout = Object.assign({}, (figure.layoutByMetric && figure.layoutByMetric[metric]) || layout);
+    }
+    // Card already has an h3 title; keep the plot chrome light.
+    layout.title = null;
+    layout.margin = Object.assign({l: 48, r: 16, t: 16, b: 48}, layout.margin || {});
+    Plotly.newPlot(host, data, layout, {responsive: true, displayModeBar: false});
+  }
+
+  function renderAll(metric) {
+    ['hour', 'dow', 'month'].forEach(key => renderChart(key, metric));
+    renderChart('variety');
+  }
+
+  function initCharts() {
+    if (typeof Plotly === 'undefined') {
+      showChartError('Charts failed to load. Check your network connection.');
+      return;
+    }
+    renderAll('plays');
+  }
+
+  window.__plotlyReady = initCharts;
+  window.__plotlyFailed = function() {
+    showChartError('Charts failed to load. Check your network connection.');
+  };
+
+  if (typeof Plotly !== 'undefined') {
+    initCharts();
+  }
+
+  document.querySelectorAll('.pattern-toggle[data-metric]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.pattern-toggle[data-metric]').forEach(b => b.classList.remove('is-active'));
+      btn.classList.add('is-active');
+      renderAll(btn.dataset.metric);
+    });
+  });
+
+  document.querySelectorAll('[data-discovery-toggle]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const expanded = btn.getAttribute('aria-expanded') === 'true';
+      const panel = document.getElementById(btn.getAttribute('aria-controls'));
+      btn.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+      btn.closest('.discovery-day')?.classList.toggle('is-open', !expanded);
+      if (panel) {
+        panel.hidden = expanded;
+      }
+    });
+  });
+
+  // progressive show-more handled by static/js/show-more.js
+
+  function updateInsightsInterval() {
+    const interval = document.getElementById('interval').value;
+    const custom = document.getElementById('insightsCustomDates');
+    if (interval === 'custom') {
+      custom.style.display = 'flex';
+      return;
+    }
+    custom.style.display = 'none';
+    const params = new URLSearchParams();
+    if (interval) params.set('interval', interval);
+    const minPlays = document.getElementById('minPlays');
+    if (minPlays && minPlays.value) params.set('minPlays', minPlays.value);
+    window.location = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
+  }
+
+  function updateInsightsDateFilter() {
+    const startDate = document.getElementById('startDate').value;
+    const endDate = document.getElementById('endDate').value;
+    if (!startDate || !endDate) return;
+    const params = new URLSearchParams();
+    params.set('interval', 'custom');
+    params.set('startDate', startDate);
+    params.set('endDate', endDate);
+    const minPlays = document.getElementById('minPlays');
+    if (minPlays && minPlays.value) params.set('minPlays', minPlays.value);
+    window.location = window.location.pathname + '?' + params.toString();
+  }
+</script>
+<script src="{{ url_for('static', filename='js/show-more.js') }}"></script>
+<script>
+  (function() {
+    const universe = {{ completionUniverse | default([]) | tojson }};
+    const root = document.getElementById('completion-avgs');
+    const input = document.getElementById('minPlays');
+    if (!root || !input || !Array.isArray(universe)) {
+      return;
+    }
+
+    const preview = Math.max(1, Number(root.dataset.preview || 3));
+    const limit = Math.max(1, Number(root.dataset.limit || 100));
+    let timer = null;
+
+    function escapeHtml(value) {
+      return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function filterLists(minPlays) {
+      const filtered = universe.filter(song => (song.plays || 0) >= minPlays);
+      const abandoned = filtered
+        .slice()
+        .sort((a, b) => (a.avgCompletion - b.avgCompletion) || (b.plays - a.plays))
+        .slice(0, limit);
+      const completed = filtered
+        .slice()
+        .sort((a, b) => (b.avgCompletion - a.avgCompletion) || (b.plays - a.plays))
+        .slice(0, limit);
+      return { abandoned, completed };
+    }
+
+    function renderList(songs, emptyText) {
+      if (!songs.length) {
+        return `<p class="loading">${escapeHtml(emptyText)}</p>`;
+      }
+      const items = songs.map((song, index) => {
+        const hidden = index >= preview ? ' hidden' : '';
+        return `<li data-show-more-item${hidden}><a href="/song/${encodeURIComponent(song.id)}"><strong>${escapeHtml(song.name)}</strong><span>${escapeHtml(song.avgCompletionText)} avg completion · ${song.plays} plays</span></a></li>`;
+      }).join('');
+      const extra = songs.length - preview;
+      const controls = extra > 0
+        ? `<div class="pattern-metric-toggle show-more"><button type="button" class="pattern-toggle is-active" data-show-more-more>Show more</button><button type="button" class="pattern-toggle" data-show-more-less hidden>Show less</button></div>`
+        : '';
+      return `<div data-show-more data-initial="${preview}" data-step="${preview}"><ul class="insight-list">${items}</ul>${controls}</div>`;
+    }
+
+    function applyMinPlays(rawValue, pushUrl) {
+      const minPlays = Math.max(1, Math.min(9999, Number(rawValue) || 1));
+      input.value = String(minPlays);
+      const { abandoned, completed } = filterLists(minPlays);
+
+      const abandonedNote = root.querySelector('[data-completion-note="abandoned"]');
+      const completedNote = root.querySelector('[data-completion-note="completed"]');
+      if (abandonedNote) {
+        abandonedNote.textContent = `Lowest average completion among songs with at least ${minPlays} plays.`;
+      }
+      if (completedNote) {
+        completedNote.textContent = `Highest average completion among songs with at least ${minPlays} plays.`;
+      }
+
+      const abandonedRoot = document.getElementById('often-abandoned-root');
+      const completedRoot = document.getElementById('most-completed-root');
+      if (abandonedRoot) {
+        abandonedRoot.innerHTML = renderList(abandoned, 'Not enough plays to score abandonment.');
+      }
+      if (completedRoot) {
+        completedRoot.innerHTML = renderList(completed, 'Not enough plays to score completion.');
+      }
+      if (window.initShowMore) {
+        window.initShowMore(root);
+      }
+
+      if (pushUrl) {
+        const params = new URLSearchParams(window.location.search);
+        params.set('minPlays', String(minPlays));
+        const next = window.location.pathname + (params.toString() ? `?${params.toString()}` : '');
+        window.history.replaceState({}, '', next);
+      }
+    }
+
+    input.addEventListener('input', () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => applyMinPlays(input.value, true), 150);
+    });
+    input.addEventListener('change', () => {
+      clearTimeout(timer);
+      applyMinPlays(input.value, true);
+    });
+  })();
+</script>
+{% endblock %}
