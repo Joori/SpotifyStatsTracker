@@ -2,12 +2,12 @@
 UI is overhauled, with a sidebar, new insights/analytics, and better UI/UX (imo)
 
 Just to list a few improvements:
--Tells you, on average, how much of a song you get through before skipping
--Tells you your listening patterns by the hour, weekday, and month
--Tells you the days you discovered the most new music
--Shows you graphs of how much you listened to a song over time
--Allows you to import multiple of your spotify History .json files at a time
--and more! see screenshots in the `assets` folder
+- Tells you, on average, how much of a song you get through before skipping
+- Tells you your listening patterns by the hour, weekday, and month
+- Tells you the days you discovered the most new music
+- Shows you graphs of how much you listened to a song over time
+- Allows you to import multiple of your spotify History .json files at a time
+- and more! see screenshots in the `assets` folder
 
 # Original readme below
 # Spotify Stats Tracker
