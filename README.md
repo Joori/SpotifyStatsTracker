@@ -10,9 +10,18 @@
 <img width="1429" height="1171" alt="image" src="https://github.com/user-attachments/assets/d1fcff8d-6cbf-47dc-8fad-9ee112eaefa8" /> <img width="1438" height="1177" alt="image" src="https://github.com/user-attachments/assets/d02d1570-5992-49f3-89b4-139e9d5540d2" />
 
 
+# My Fork
+UI is overhauled, with a sidebar, new insights/analytics, and better UI/UX (imo)
 
+Just to list a few improvements:
+-Tells you, on average, how much of a song you get through before skipping
+-Tells you your listening patterns by the hour, weekday, and month
+-Tells you the days you discovered the most new music
+-Shows you graphs of how much you listened to a song over time
+-Allows you to import multiple of your spotify History .json files at a time
+-and more! see screenshots in the `assets` folder
 
-
+# Original readme below
 # Spotify Stats Tracker
 ### If you found [this repository](https://github.com/TzurSoffer/SpotifyStatsTracker) useful, please give it a ⭐!.
 A web application that allows users to track and analyze their Spotify listening habits and statistics **without Spotify Premium**.
