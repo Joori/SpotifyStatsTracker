@@ -3,6 +3,8 @@
 Fork of [kjljixx/SpotifyStatsTracker](https://github.com/kjljixx/SpotifyStatsTracker)
 (itself a fork of [TzurSoffer/SpotifyStatsTracker](https://github.com/TzurSoffer/SpotifyStatsTracker)).
 
+### Originally made by Tzur Soffer. If you found [the original repository](https://github.com/TzurSoffer/SpotifyStatsTracker) useful, please give it a ⭐!
+
 **This fork uses the official Spotify Web API instead of SpotipyFree / browser cookies**,
 so it stays within Spotify's Developer Terms. That changes the requirements:
 
