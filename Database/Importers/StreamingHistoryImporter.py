@@ -1,26 +1,51 @@
 import csv
 import json
 import datetime
-import SpotipyFree
-import concurrent.futures
 
 try:
     from Database.Formatters.spotifyClient import Client
     from Database.utils import timeToInt, parseError, now
+    from Database.spotifyApi import RateLimitedError, SpotifyAuthError
 except ModuleNotFoundError:
     from Formatters.spotifyClient import Client
     from utils import timeToInt, parseError, now
+    from spotifyApi import RateLimitedError, SpotifyAuthError
+
+# Errors that must stop the import instead of turning the track into a stub
+FATAL_ERRORS = (RateLimitedError, SpotifyAuthError)
 
 
 class Importer:
-    def __init__(self, user="kjljixx", chunkSize = 1500, prefetchWorkersCount = 16):
-        self.sp = SpotipyFree.Spotify()
+    def __init__(self, api=None, user="kjljixx", chunkSize = 1500, maxRetryWait=None):
+        self.api = api
         self.chunkSize = chunkSize
-        self.prefetchWorkersCount = prefetchWorkersCount
+        self.maxRetryWait = maxRetryWait if maxRetryWait is not None else getattr(api, "maxRetryWait", 0)
+        self._progressCallback = None
+        self._lastProgress = (0, 0)
+
+    def _report(self, current, total, message):
+        self._lastProgress = (current, total)
+        if self._progressCallback:
+            self._progressCallback("running", current, total, message)
+
+    def _onRateLimitWait(self, secondsLeft):
+        current, total = self._lastProgress
+        if self._progressCallback:
+            self._progressCallback(
+                "running", current, total,
+                f"Spotify rate limit: waiting {secondsLeft}s before continuing"
+            )
+
+    def _call(self, fn):
+        if self.api is None:
+            raise SpotifyAuthError("notConnected")
+        return self.api.call(fn, maxWait=self.maxRetryWait, onWait=self._onRateLimitWait)
 
     def _searchForSong(self, name, artist):
         query = f"track:{name} artist:{artist}"
-        items = self.sp.search(query, type="track", limit=1)["tracks"]["items"]
+        result = self._call(lambda sp: sp.search(query, type="track", limit=1))   #< Dev Mode allows limit <= 10
+        items = ((result or {}).get("tracks") or {}).get("items") or []
+        items = [item for item in items if item and item.get("id")]
         if not items:
             raise LookupError(f"No search results for '{name}' by '{artist}'")
         return items[0]
@@ -29,13 +54,17 @@ class Importer:
         """ Fetch raw track metadata by URI, falling back to a name/artist search. """
         if trackUri:
             try:
-                return Client.formatTrack(self.sp.track(trackUri), embedPlaybackInfo=False)
+                return Client.formatTrack(self._call(lambda sp: sp.track(trackUri)), embedPlaybackInfo=False)
+            except FATAL_ERRORS:
+                raise
             except Exception as e:
                 print(f"URI lookup failed for {trackUri}, falling back to search: {parseError(e)}")
         if not name and not artist:
             return None
         try:
             return Client.formatTrack(self._searchForSong(name=name, artist=artist), embedPlaybackInfo=False)
+        except FATAL_ERRORS:
+            raise
         except Exception as e:
             print(f"Search failed for '{name}' by '{artist}': {parseError(e)}")
             return None
@@ -113,43 +142,25 @@ class Importer:
         return missingTracks
 
     def _prefetchMissingTracks(self, missingTracks, chunkStart, totalItems, known, progressCallback):
+        """ Look up tracks that aren't in the local DB yet, one request at a time. """
         totalMissing = len(missingTracks)
-        fetchedCount = 0
 
-        def fetchOne(key, info):
+        for fetchedCount, (key, info) in enumerate(missingTracks.items(), start=1):
             name, artist, trackUri = info
-            meta = None
-            try:
-                meta = self._fetchTrackMeta(name, artist, trackUri)
-            except Exception as e:
-                print(f"Error fetching {name} by {artist}: {parseError(e)}")
-            return key, meta
+            if key in known:     #< resolved earlier in this run (e.g. same song under another key)
+                continue
+            self._report(chunkStart, totalItems, f"Fetching track metadata ({fetchedCount}/{totalMissing})...")
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self.prefetchWorkersCount) as executor:
-            futures = {executor.submit(fetchOne, k, val): k for k, val in missingTracks.items()}
-            for future in concurrent.futures.as_completed(futures):
-                fetchedCount += 1
-                if progressCallback:
-                    progressCallback(
-                        "running",
-                        chunkStart + fetchedCount,
-                        totalItems,
-                        f"Fetching batch metadata ({fetchedCount}/{totalMissing})..."
-                    )
-
-                try:
-                    key, formatted = future.result()
-                    if not formatted:
-                        name, artist, trackUri = missingTracks[key]
-                        formatted = self._stubOrNone(name, artist, trackUri)
-                    if formatted:
-                        if key:
-                            known[key] = formatted
-                        if len(formatted.get("artists") or []) > 0:
-                            nameArtistKey = formatted["name"] + formatted["artists"][0]["name"]
-                            known[nameArtistKey] = formatted
-                except Exception as e:
-                    print(f"Error saving fetched track: {parseError(e)}")
+            formatted = self._fetchTrackMeta(name, artist, trackUri)
+            if not formatted:
+                formatted = self._stubOrNone(name, artist, trackUri)
+            if formatted:
+                if key:
+                    known[key] = formatted
+                known[formatted["id"]] = formatted
+                if len(formatted.get("artists") or []) > 0:
+                    nameArtistKey = formatted["name"] + formatted["artists"][0]["name"]
+                    known[nameArtistKey] = formatted
         return known
 
     def _cacheTrack(self, known, base, trackUri, name, artist):
@@ -179,6 +190,8 @@ class Importer:
                 meta = Client.embedPlayInfo(base.copy(), startTimestamp, timePlayed, skipped=skipped)
 
             return meta
+        except FATAL_ERRORS:
+            raise
         except Exception as e:
             print(f"Error processing item: {parseError(e)}")
             base = self._stubOrNone(name, artist, trackUri, timePlayed)
@@ -191,7 +204,8 @@ class Importer:
                 return None
 
     def _import(self, dataFunction, history, known=[], progressCallback=None):
-        known = self.buildKnownIndex(known)
+        self._progressCallback = progressCallback
+        known = self.buildKnownIndex(known)    #< local DB first: known tracks never hit the API
 
         parsedItems = self._parseHistory(dataFunction, history)
         totalItems = len(parsedItems)
@@ -204,7 +218,7 @@ class Importer:
             missingTracks = self._identifyMissingTracks(chunk, known)
 
             if missingTracks:
-                known = self._prefetchMissingTracks(  #< get metadata for missing tracks in parallel
+                known = self._prefetchMissingTracks(  #< get metadata for missing tracks, sequentially
                     missingTracks,
                     chunkStart,
                     totalItems,

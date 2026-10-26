@@ -1,12 +1,14 @@
 from Database.utils import timeToInt, convertToDatetime
 
+PLACEHOLDER_ARTIST_IMAGE = "https://i.scdn.co/image/52c2a824e84f4e8adf0b12418f9f8306b4b5b77a"
+
 class Client:
     @staticmethod
     def _formatArtists(albumRaw):
         artists = []
 
         for artist in (albumRaw.get("artists") or []):
-            imageUrl = "https://i.scdn.co/image/52c2a824e84f4e8adf0b12418f9f8306b4b5b77a"
+            imageUrl = PLACEHOLDER_ARTIST_IMAGE   #< official track/album responses carry no artist images; filled in later
             if ("images" in artist) and (len(artist["images"]) > 0):
                 imageUrl = artist["images"][0]["url"]
             artists.append(

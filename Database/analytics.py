@@ -405,6 +405,8 @@ def _completionRankings(entries: list, tracks: dict, startDate=None, endDate=Non
     filtered = _filterEntries(entries, startDate, endDate)
     agg = defaultdict(lambda: {"plays": 0, "time": 0, "durationSum": 0})
     for entry in filtered:
+        if entry.get("estimated"):   #< live-recorded: listen time is assumed, not measured
+            continue
         tid = entry.get("id")
         track = tracks.get(tid)
         if not tid or not track:
@@ -485,7 +487,7 @@ def completionLists(
 
 
 def skipStats(entries: list, tracks: dict, startDate=None, endDate=None, minPlays: int = 5, limit: int = 10) -> dict:
-    filtered = _filterEntries(entries, startDate, endDate)
+    filtered = [e for e in _filterEntries(entries, startDate, endDate) if not e.get("estimated")]   #< no skip info for live-recorded plays
     hasSkipData = any("skipped" in e for e in filtered)
     if not hasSkipData:
         return {"available": False, "mostSkipped": [], "leastSkipped": []}
@@ -782,6 +784,8 @@ def completionRate(entries: list, tracks: dict, songId: str | None = None) -> fl
     totalDuration = 0
     for entry in entries:
         if songId and entry.get("id") != songId:
+            continue
+        if entry.get("estimated"):
             continue
         track = tracks.get(entry.get("id"))
         if not track:

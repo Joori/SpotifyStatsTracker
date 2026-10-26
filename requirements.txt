@@ -1,6 +1,5 @@
 Flask
-spotipyFree
+spotipy==2.26.0
 pillow
 requests
 redis
-websockets

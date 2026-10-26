@@ -16,3 +16,4 @@ Database/Users/*/img/tracks/*
 Database/Users/*/img/artists/*
 tmp/
 Database/**/*.json
+secrets/*

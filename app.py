@@ -1,8 +1,9 @@
 import os
-import json
+import secrets
 import threading
 import requests
 from pathlib import Path
+from urllib.parse import urlparse
 import time
 from datetime import datetime, timedelta, date as date_cls
 
@@ -12,7 +13,8 @@ from Database.database import Database
 from Database import analytics as analyticsLib
 from Database.Migrators.migrate import migrateIfNeeded
 from Database.utils import msToString, convertToDatetime, formatDuration, dateToString, versionTuple, now, parseDateString
-from SpotipyFree import saveSession, parseCookieString
+from Database.spotifyApi import SpotifyApi
+from spotipy.exceptions import SpotifyOauthError
 
 EXPLORE_TABS = (
     {"key": "songs", "label": "Songs", "section": "top_songs"},
@@ -26,10 +28,10 @@ class SpotifyDashboardApp:
         migrateIfNeeded()
         self.app = Flask(__name__)
         self.baseDir = Path(__file__).resolve().parent
-        self.isLoggedIn = False
         self.username = "kjljixx"
-        self.cookiesFile = self.baseDir / "secrets" / "cookies.json"
-        self.database = Database(user=self.username)
+        self.spotify = SpotifyApi(self.baseDir / "secrets" / ".spotify_token_cache")
+        self.pendingOAuthStates = {}          #< state -> (created, next path); single-user app, kept in memory
+        self.database = Database(user=self.username, spotifyApi=self.spotify)
         self.database.startAutoImporter()
         self.database.resetProgress()
         try:
@@ -43,34 +45,43 @@ class SpotifyDashboardApp:
 
         self.registerRoutes()
 
+    @property
+    def isLoggedIn(self):
+        return self.spotify.isConnected()
+
     def startListenerIfNeeded(self):
-        if self.database.listener is None:
-            self.database.startListener(str(self.cookiesFile))
+        if self.database.listener is None and self.spotify.isConnected():
+            self.database.startListener()
             print("Started listener thread.")
-            time.sleep(2)  # Give listener time to initialize
-    
+
     def checkLogin_thread(self):
-        self._ensureLogin()
         thread = threading.Thread(target=self._checkLoginLoop, daemon=True)
         thread.start()
-    
+
     def _ensureLogin(self):
-        if self.cookiesFile.exists():
-            try:
-                json.loads(self.cookiesFile.read_text(encoding="utf-8"))
-                self.startListenerIfNeeded()
-                if self.database.isListenerLoggedIn():
-                    self.isLoggedIn = True
-            except Exception as e:
-                print(e)
-                self.isLoggedIn = False
-        else:
-            self.isLoggedIn = False
-    
+        self.spotify.checkToken()   #< refreshes the token if needed; no API calls, never waits on rate limits
+        self.startListenerIfNeeded()
+
     def _checkLoginLoop(self):
         while True:
-            self._ensureLogin()
+            try:
+                self._ensureLogin()
+            except Exception as e:
+                print(f"Login check failed: {e}")
             time.sleep(60 * 5)  # Check every 5 minutes
+
+    def _newOAuthState(self, nextPath):
+        now_ = time.time()
+        self.pendingOAuthStates = {k: v for k, v in self.pendingOAuthStates.items() if now_ - v[0] < 600}
+        state = secrets.token_urlsafe(24)
+        self.pendingOAuthStates[state] = (now_, nextPath)
+        return state
+
+    @staticmethod
+    def _safeNextPath(nextPath):
+        if nextPath and nextPath.startswith("/") and not nextPath.startswith("//"):
+            return nextPath
+        return None
 
     def startVersionCheck_thread(self):
         thread = threading.Thread(target=self._versionCheckLoop, daemon=True)
@@ -150,6 +161,8 @@ class SpotifyDashboardApp:
             playedAt = convertToDatetime(song["playedAt"])
             song["playedAtText"] = playedAt.strftime("%Y-%m-%d %H:%M")
             song["timePlayedText"] = msToString(song["timePlayed"])
+            if song.get("estimated"):
+                song["timePlayedText"] = f"~{song['timePlayedText']} (estimated)"
 
         song["contextName"] = None
         song["contextUrl"] = None
@@ -158,7 +171,9 @@ class SpotifyDashboardApp:
             song["contextName"] = self._safePlaylistName(playedFrom)
             song["contextUrl"] = self._getContextUrl(playedFrom)
 
-        completionPercent = self._getCompletionPercent(song.get("timePlayed"), song.get("duration"))
+        completionPercent = None
+        if not song.get("estimated"):
+            completionPercent = self._getCompletionPercent(song.get("timePlayed"), song.get("duration"))
         song["completionPercent"] = completionPercent
         song["completionPercentText"] = f"{completionPercent}%" if completionPercent is not None else None
 
@@ -192,9 +207,11 @@ class SpotifyDashboardApp:
         song["detailUrl"] = f"/song/{song.get('id')}" if song.get("id") else None
 
         duration = song.get("duration") or 0
-        plays = song.get("plays") or 0
+        plays = song.get("measuredPlays", song.get("plays")) or 0   #< estimated (live-recorded) plays don't count towards completion
+        song["completionPercent"] = None
+        song["completionPercentText"] = None
         if duration > 0 and plays > 0:   #< aggregated cards need completion across every play, not just the first one
-            completionPercent = self._getCompletionPercent(song.get("totalTimeListened", 0), duration * plays)
+            completionPercent = self._getCompletionPercent(song.get("measuredTimeListened", song.get("totalTimeListened", 0)), duration * plays)
             song["completionPercent"] = completionPercent
             song["completionPercentText"] = f"{completionPercent}%" if completionPercent is not None else None
         return song
@@ -1051,32 +1068,52 @@ class SpotifyDashboardApp:
         def importPage():
             return render_template("import.html", importProgress=self.database.readProgress())
 
-        @self.app.route("/login", methods=["GET", "POST"])
+        def _renderLogin(error=None):
+            return render_template(
+                "login.html",
+                configured=self.spotify.isConfigured(),
+                needsRelog=self.spotify.needsRelog(),
+                redirectUri=self.spotify.redirectUri,
+                nextPath=self._safeNextPath(request.args.get("next")) or "",
+                error=error,
+            )
+
+        @self.app.route("/login", methods=["GET"])
         def login():
-            step = request.form.get("step", "1")
+            return _renderLogin()
 
-            if step == "1":
-                if request.method == "GET":
-                    return render_template("login.html", step=1)
+        @self.app.route("/login/start", methods=["POST"])
+        def loginStart():
+            if not self.spotify.isConfigured():
+                return _renderLogin("Spotify isn't configured. Set SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET and SPOTIFY_REDIRECT_URI.")
+            state = self._newOAuthState(self._safeNextPath(request.form.get("next")))
+            return redirect(self.spotify.getAuthorizeUrl(state))
 
-                email = request.form.get("email", "").strip()
-                if not email:
-                    return render_template("login.html", step=1, error="Email required.")
+        def oauthCallback():
+            error = request.args.get("error")
+            state = request.args.get("state", "")
+            pending = self.pendingOAuthStates.pop(state, None)
+            if error:
+                return _renderLogin(f"Spotify login was cancelled ({error}).")
+            if pending is None:
+                return _renderLogin("Login link expired or didn't come from this tracker. Please try again.")
+            code = request.args.get("code")
+            if not code:
+                return _renderLogin("Spotify didn't return a login code. Please try again.")
+            try:
+                self.spotify.handleCallback(code)
+            except (SpotifyOauthError, requests.RequestException) as e:
+                print(f"Spotify token exchange failed: {e}")
+                return _renderLogin("Couldn't finish the Spotify login. Check the client ID/secret and redirect URI, then try again.")
+            self.startListenerIfNeeded()
+            return redirect(pending[1] or url_for("dashboard"))
 
-                return render_template("login.html", step=2, email=email)
+        callbackPath = urlparse(self.spotify.redirectUri).path or "/callback"
+        self.app.add_url_rule(callbackPath, "oauthCallback", oauthCallback, methods=["GET"])
 
-            if step == "2":
-                email = request.form.get("email", "")
-                cookies = request.form.get("cookies", "")
-
-                if not cookies:
-                    return render_template("login.html", step=2, email=email, error="Cookies required.")
-
-                saveSession(parseCookieString(cookies), email, self.cookiesFile)
-                self.isLoggedIn = True
-                self.startListenerIfNeeded()
-
-                return redirect(url_for("dashboard"))
+        @self.app.route("/spotify-status", methods=["GET"])
+        def spotifyStatus():
+            return jsonify(self.spotify.status())
 
         @self.app.route("/import-progress", methods=["GET"])
         def importProgress():

@@ -2,11 +2,11 @@
 {% block content %}
 
 <header class="page-header">
-  <h1>Login</h1>
-  {% if step == 1 %}
-    <p>Step 1 of 2 — enter your email.</p>
+  <h1>{% if needsRelog %}Relog to Spotify{% else %}Connect to Spotify{% endif %}</h1>
+  {% if needsRelog %}
+    <p>Your Spotify login has expired (Spotify ends logins after about 6 months). Your listening history is safe; log in again to keep tracking.</p>
   {% else %}
-    <p>Step 2 of 2 — paste your Spotify session cookies.</p>
+    <p>Log in with Spotify so the tracker can read your recently played tracks.</p>
   {% endif %}
 </header>
 
@@ -15,39 +15,20 @@
     <p class="error">{{ error }}</p>
   {% endif %}
 
-  {% if step == 1 %}
-    <form method="post" action="/login">
-      <input type="hidden" name="step" value="1">
-
-      <div class="form-group">
-        <label>Email</label>
-        <input type="email" name="email" required>
-      </div>
-
-      <button type="submit" class="btn-primary">Next</button>
+  {% if configured %}
+    <form method="post" action="/login/start">
+      <input type="hidden" name="next" value="{{ nextPath }}">
+      <button type="submit" class="btn-primary">{% if needsRelog %}Relog to Spotify{% else %}Connect to Spotify{% endif %}</button>
     </form>
-
+    <p class="muted">Permissions requested: recently played tracks, private playlists (names only).</p>
   {% else %}
-    <form method="post" action="/login">
-      <input type="hidden" name="step" value="2">
-      <input type="hidden" name="email" value="{{ email }}">
-
-      <div class="form-group">
-        <label>Cookies</label>
-        <textarea name="cookies" required></textarea>
-      </div>
-
-      <button type="submit" class="btn-primary">Finish</button>
-    </form>
     <section class="instructions">
-        <h3>How to locate your session data</h3>
-        <ol>
-            <li>Open <a href="https://open.spotify.com" target="_blank">open.spotify.com</a> in a new browser tab and log in if not already logged in.</li>
-            <li>Open the Developer Tools (<strong>F12</strong>).</li>
-            <li>Navigate to the <strong>Application</strong> tab and expand the <strong>Cookies</strong> section on the left.</li>
-            <li>Find the <strong>https://open.spotify.com</strong> entry and click on it. Highlight and copy <strong>everything</strong> in that table.</li>
-            <li>Paste it into the input area above.</li>
-        </ol>
+      <h3>Spotify isn't configured yet</h3>
+      <ol>
+        <li>Open your app at <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">developer.spotify.com/dashboard</a>.</li>
+        <li>Add your redirect URI, e.g. <code>https://your-tracker-host/callback</code> (must be HTTPS unless it's a loopback address).</li>
+        <li>Set <code>SPOTIFY_CLIENT_ID</code>, <code>SPOTIFY_CLIENT_SECRET</code> and <code>SPOTIFY_REDIRECT_URI</code> in <code>docker-compose.yml</code> and restart.</li>
+      </ol>
     </section>
   {% endif %}
 </section>

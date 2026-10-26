@@ -10,26 +10,32 @@ import requests
 from PIL import Image
 
 try:
-    from Database.Formatters.spotifyClient import Client
+    from Database.Formatters.spotifyClient import Client, PLACEHOLDER_ARTIST_IMAGE
     from Database.Importers.StreamingHistoryImporter import Importer
     from Database.Importers.AutoImporter import AutoImporter
     from Database.Listeners.spotifyListener import Listener
-    from Database.utils import parseError, convertToDatetime, dateToString, now
+    from Database.spotifyApi import RateLimitedError, SpotifyAuthError
+    from Database.utils import parseError, convertToDatetime, dateToString, now, timeToInt
     from Database import analytics as analyticsLib
+    from Database import playMatching
 except ModuleNotFoundError:
-    from Formatters.spotifyClient import Client
+    from Formatters.spotifyClient import Client, PLACEHOLDER_ARTIST_IMAGE
     from Importers.StreamingHistoryImporter import Importer
     from Importers.AutoImporter import AutoImporter
     from Listeners.spotifyListener import Listener
-    from utils import parseError, convertToDatetime, dateToString, now
+    from spotifyApi import RateLimitedError, SpotifyAuthError
+    from utils import parseError, convertToDatetime, dateToString, now, timeToInt
     import analytics as analyticsLib
+    import playMatching
 
 class Database:
     def __init__(self,
                  user: str = "Tzur",
-                 progressUpdateInterval = 25   #< Write import progress to disk every N entries instead of every entry
+                 progressUpdateInterval = 25,   #< Write import progress to disk every N entries instead of every entry
+                 spotifyApi = None              #< Database.spotifyApi.SpotifyApi shared by listener, importer and lookups
                  ):
         self.user = user
+        self.spotify = spotifyApi
         self.progressUpdateInterval = progressUpdateInterval
         self.listener = None
         self.baseDir = Path(__file__).resolve().parent
@@ -76,15 +82,50 @@ class Database:
             file.parent.mkdir(parents=True, exist_ok=True)
             file.write_text(json.dumps(data, indent=4), encoding="utf-8")
 
-    def _addToDatabaseFromListener(self, data) -> None:
-        if not data:
+    def _addToDatabaseFromListener(self, items) -> None:
+        """
+        Store plays from the official recently-played endpoint.
+        The API gives no listen time and played_at is (roughly) when the play ended, so the
+        start is estimated as played_at - track length and the play is flagged "estimated".
+        """
+        if not items:
             return
-        for item in data:
-            track = item.get("track")
-            timestamp = item.get("played_at")
-            msPlayed = item.get("ms_played", 0)
-            if track:
-                self.appendTrackData(timestamp, track, msPlayed, context=item.get("context", None))
+        candidates = []
+        for item in items:
+            raw = item.get("track") or {}
+            if not raw.get("id") or raw.get("is_local") or raw.get("type", "track") != "track":
+                continue
+            endTimestamp = timeToInt(item.get("played_at"))
+            if not endTimestamp:
+                continue
+            duration = raw.get("duration_ms") or 0
+            try:
+                formatted = Client.formatTrack(raw, embedPlaybackInfo=False)
+            except Exception as e:
+                print(f"Skipping unreadable recently-played item: {parseError(e)}")
+                continue
+            candidates.append({
+                "id": formatted["id"],
+                "playedAt": endTimestamp - duration // 1000,
+                "duration": duration,
+                "key": playMatching.songKey(formatted),
+                "raw": raw,
+                "context": item.get("context"),
+            })
+        if not candidates:
+            return
+
+        windowStart = min(c["playedAt"] for c in candidates) - 6 * 3600
+        with self.fileLock:
+            recentEntries = [e for e in self._loadEntries() if (e.get("playedAt") or 0) >= windowStart]
+            fresh = playMatching.filterNewLivePlays(candidates, recentEntries, self._loadTracks())
+
+        for candidate in sorted(fresh, key=lambda c: c["playedAt"]):
+            meta = Client.formatTrack(candidate["raw"], candidate["playedAt"], candidate["duration"], context=candidate["context"])
+            meta["estimated"] = True
+            self.appendMetadata(meta)
+        if fresh:
+            print(f"Listener recorded {len(fresh)} new play(s)")
 
     def _loadEntries(self) -> list:
         """Load ONLY id and info about time played from the JSON file."""
@@ -126,7 +167,9 @@ class Database:
     def _saveNewTrackFromId(self, id, tracks=None):
         if tracks == None:
             tracks = self._loadTracks()
-        track = Client.formatTrack(self.listener.track(id), embedPlaybackInfo=False)
+        if self.spotify is None:
+            raise SpotifyAuthError("notConfigured")
+        track = Client.formatTrack(self.spotify.track(id), embedPlaybackInfo=False)   #< never waits on a rate limit (may run in a web request)
         tracks = self._addTrack(tracks, track)
         self._saveTracks(tracks)
 
@@ -139,10 +182,13 @@ class Database:
         }
         if "skipped" in metadata:
             entry["skipped"] = bool(metadata.get("skipped"))
+        if metadata.get("estimated"):
+            entry["estimated"] = True    #< listen time is the track length, not measured
         metadata.pop("playedAt")
         metadata.pop("timePlayed")
         metadata.pop("playedFrom", None)
         metadata.pop("skipped", None)
+        metadata.pop("estimated", None)
         return entry, metadata
 
     def _paginateEntry(self, entry: dict, tracks: dict = None) -> dict:
@@ -164,6 +210,8 @@ class Database:
         meta["playedFrom"] = entry.get("playedFrom", None)
         if "skipped" in entry:
             meta["skipped"] = entry.get("skipped")
+        if entry.get("estimated"):
+            meta["estimated"] = True
 
         return meta
 
@@ -179,9 +227,10 @@ class Database:
     def appendEntries(self, newEntries: list):
         if not newEntries:
             return
-        entries = self._loadEntries()
-        entries.append(newEntries)
-        self._saveEntries(entries)
+        with self.fileLock:
+            entries = self._loadEntries()
+            entries.append(newEntries)
+            self._saveEntries(entries)
     
     def updateTracks(self, track: dict):
         if not track:
@@ -196,11 +245,16 @@ class Database:
         existingPlaylists = self._loadPlaylists()
         contextType, playlistId = playlist.split(":", 1)
         if playlistId not in existingPlaylists[contextType]:
+            if self.spotify is None:
+                return
             try:
                 if contextType == "album":
-                    existingPlaylists[contextType][playlistId] = self.listener.albumName(playlistId)
+                    existingPlaylists[contextType][playlistId] = self.spotify.albumName(playlistId)
                 else:
-                    existingPlaylists[contextType][playlistId] = self.listener.playlistName(playlistId)
+                    existingPlaylists[contextType][playlistId] = self.spotify.playlistName(playlistId)
+            except (RateLimitedError, SpotifyAuthError) as e:
+                print(f"Skipping name lookup for {playlist} for now: {e}")   #< retried on the next play from it
+                return
             except Exception as e:
                 print(f"Error occurred while fetching playlist name for {playlistId} (probably due to playlist being private): {e}")
                 existingPlaylists[contextType][playlistId] = None
@@ -288,12 +342,17 @@ class Database:
     def resetProgress(self):
         self.writeProgress("idle", 0, 0, "", False)
 
-    def _saveImg(self, path: Path, url: str, imgId: str):
-        metadataPath = path / "metadata.json"
+    def _downloadedImageIds(self, path: Path) -> list:
         path.mkdir(parents=True, exist_ok=True)
-        ids = self._loadJsonFile(metadataPath, [])
+        return self._loadJsonFile(path / "metadata.json", [])
+
+    def _saveImg(self, path: Path, url: str, imgId: str, final: bool = True):
+        """ final=False saves a stand-in image but leaves the id unrecorded so it's retried later. """
+        metadataPath = path / "metadata.json"
+        ids = self._downloadedImageIds(path)
         if imgId in ids:
-            print(f"Image for {imgId} already downloaded.")
+            return
+        if not final and any(path.glob(f"{imgId}.*")):
             return
         try:
             response = requests.get(url)
@@ -302,6 +361,8 @@ class Database:
             ext = img.format.lower() if img.format else "jpeg"
             
             img.save(path / f"{imgId}.{ext}")
+            if not final:
+                return
             ids.append(imgId)
 
             metadataPath.write_text(
@@ -317,15 +378,46 @@ class Database:
             return
         self._saveImg(self.imgDir_tracks, url, imgId)
 
-    def saveArtistImg(self, url: str, imgId: str):
+    def saveArtistImg(self, url: str, imgId: str, final: bool = True):
         if not url or not imgId:
             return
-        self._saveImg(self.imgDir_artists, url, imgId)
-    
+        self._saveImg(self.imgDir_artists, url, imgId, final)
+
+    def _lookupArtistImageUrl(self, artistId):
+        """ Real artist photo via GET /artists/{id}. '' = artist has none, None = lookup failed (retry later). """
+        if self.spotify is None or not artistId or str(artistId).startswith("stub-artist:"):
+            return ""
+        try:
+            images = (self.spotify.artist(artistId) or {}).get("images") or []   #< never waits on a rate limit
+        except (RateLimitedError, SpotifyAuthError):
+            return None
+        except Exception as e:
+            print(f"Artist image lookup failed for {artistId}: {parseError(e)}")
+            return None
+        return images[0].get("url", "") if images else ""
+
     def saveImagesFromTrack(self, track: dict):
         self.saveTrackImg(track["imageUrl"], track["imageId"])
+        downloaded = None
         for artist in track["artists"]:
-            self.saveArtistImg(artist["imageUrl"], artist["imageId"])
+            url = artist.get("imageUrl")
+            imgId = artist.get("imageId")
+            final = True
+            if imgId and url in (None, "", PLACEHOLDER_ARTIST_IMAGE):
+                if downloaded is None:
+                    downloaded = set(self._downloadedImageIds(self.imgDir_artists))
+                if imgId in downloaded:
+                    continue      #< already have this artist's photo, no API call
+                realUrl = self._lookupArtistImageUrl(artist.get("id"))
+                if realUrl:
+                    url = realUrl
+                    artist["imageUrl"] = realUrl
+                elif realUrl is None:
+                    url = PLACEHOLDER_ARTIST_IMAGE
+                    final = False
+                else:
+                    url = PLACEHOLDER_ARTIST_IMAGE
+            self.saveArtistImg(url, imgId, final)
 
     def appendMetadata(self, meta: dict) -> None:
         self.saveImagesFromTrack(meta)
@@ -379,9 +471,8 @@ class Database:
         return ". ".join(parts)
 
     def importHistory(self, exportedHistory):
-        entries = self._loadEntries()
         tracks = self._loadTracks()
-        importer = Importer()
+        importer = Importer(api=self.spotify)
 
         if isinstance(exportedHistory, str):
             exportedHistory = [exportedHistory]
@@ -415,28 +506,50 @@ class Database:
         total = len(parsedHistory)
         self.writeProgress("running", 0, total, "Starting import")
 
+        # Plays are only written once the whole import succeeds; track metadata is kept as it's fetched
+        newEntries = []
         saved = 0
         try:
-            for saved, meta in enumerate(importer.importHistory(parsedHistory, self._loadTracks().values(), exportType, progressCallback=self.writeProgress), start=1):
+            for saved, meta in enumerate(importer.importHistory(parsedHistory, list(tracks.values()), exportType, progressCallback=self.writeProgress), start=1):
                 e, t = self._splitEntryAndTrack(meta)
-                entries.append(e)
-                tracks = self._addTrack(tracks, t)
+                newEntries.append(e)
+                with self.fileLock:
+                    tracks = self._addTrack(tracks, t)
                 self.saveImagesFromTrack(t)
 
                 if saved % self.progressUpdateInterval == 0 or saved == total:
                     self.writeProgress("running", saved, total, f"Imported {saved} of {total}")
+        except Exception as e:
+            with self.fileLock:
+                self._saveTracks(tracks)
+            if isinstance(e, RateLimitedError):
+                message = (f"{e}. No plays were saved; track info fetched so far was kept, "
+                           f"so running the import again later will be faster")
+            elif isinstance(e, SpotifyAuthError):
+                message = "Spotify login needed. Relog to Spotify and run the import again"
+            else:
+                message = f"{parseError(e)}. No plays were saved"
+            self.writeProgress("failed", saved, total, message, error=True)
+            raise
 
-            self._saveEntries(entries)
+        with self.fileLock:
+            entries = self._loadEntries()
+            replaced, toAdd, duplicates = playMatching.mergeImported(entries, newEntries, tracks)
+            replacedIds = {id(e) for e in replaced}
+            merged = [e for e in entries if id(e) not in replacedIds] + toAdd
+            self._saveEntries(merged)
             self._saveTracks(tracks)
             self.resortDatabase()
             gaps = self._findTimelineGaps(self._loadEntries())
-            message = self._formatImportSummary(saved, total, gaps)
-            if skippedFiles:
-                message += f". {skippedFiles} uploaded file(s) were skipped (unreadable or mismatched type)"
-            self.writeProgress("complete", saved, total, message)
-        except Exception as e:
-            self.writeProgress("failed", saved, total, f"Import failed: {parseError(e)}", error=True)
-            raise
+
+        message = self._formatImportSummary(len(toAdd), total, gaps)
+        if replaced:
+            message += f". {len(replaced)} live-recorded play(s) replaced with exact data from the export"
+        if duplicates:
+            message += f". {duplicates} play(s) were already in the database and skipped"
+        if skippedFiles:
+            message += f". {skippedFiles} uploaded file(s) were skipped (unreadable or mismatched type)"
+        self.writeProgress("complete", len(toAdd), total, message)
 
     def filterByInterval(self, entries: list, startDate: datetime.datetime = None, endDate: datetime.datetime = None) -> list:
         if startDate is None and endDate is None:
@@ -471,12 +584,18 @@ class Database:
                 if metadata == None:
                     continue
                 songs[key] = metadata
+                songs[key].pop("estimated", None)   #< per-play flag, not a property of the song
                 songs[key]["plays"] = 0
                 songs[key]["totalTimeListened"] = 0
+                songs[key]["measuredPlays"] = 0
+                songs[key]["measuredTimeListened"] = 0
                 songs[key]["firstListenedAt"] = playedAt       #< database is sorted, so first find must be first time listened
 
             songs[key]["plays"] += 1
             songs[key]["totalTimeListened"] += timePlayed
+            if not entry.get("estimated"):   #< completion % only uses plays with a measured listen time
+                songs[key]["measuredPlays"] += 1
+                songs[key]["measuredTimeListened"] += timePlayed
         return list(songs.values())
 
     def getArtistsStats(self, startDate: datetime.datetime = None, endDate: datetime.datetime = None) -> list:
@@ -788,34 +907,22 @@ class Database:
 
         return results
 
-    def startListener(self, cookiesFile):
-        self.listener = Listener(cookiesFile)
+    def startListener(self):
+        if self.listener is not None or self.spotify is None:
+            return
+        self.listener = Listener(self.spotify)
         self.listener.startListener_thread(callback=self._addToDatabaseFromListener)
 
     def startAutoImporter(self):
         self.autoImporter.start()
 
     def isListenerLoggedIn(self):
-        if self.listener == None:
-            return False
-        return self.listener.isLoggedIn()
+        return self.spotify is not None and self.spotify.isConnected()
 
 
 if __name__ == "__main__":
+    from spotifyApi import SpotifyApi
 
-    manager = Database(user="Tzur")
-    manager.startListener("cookies.json")
+    manager = Database(user="Tzur", spotifyApi=SpotifyApi(Path(__file__).resolve().parent.parent / "secrets" / ".spotify_token_cache"))
+    manager.startListener()
     manager.startAutoImporter()
-    import pysole
-    pysole.probe()
-
-    # import SpotipyFree
-    # sp = SpotipyFree.Spotify()
-    # sp.login()
-
-    # importFile = Path("importMe.json")
-    # if importFile.exists():
-    #     with importFile.open("r", encoding="utf-8") as f:
-    #         historyPayload = json.load(f)
-    #     manager.importSpotifyHistory(historyPayload)
-

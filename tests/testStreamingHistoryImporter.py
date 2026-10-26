@@ -37,10 +37,23 @@ fakeTrack = {
 }
 
 
+class FakeApi:
+    """ Stands in for SpotifyApi: runs the call against a mocked spotipy client. """
+    maxRetryWait = 0
+
+    def __init__(self):
+        self.client = MagicMock()
+        self.calls = 0
+
+    def call(self, fn, maxWait=0, onWait=None):
+        self.calls += 1
+        return fn(self.client)
+
+
 class TestMusicoletImport(unittest.TestCase):
     def mockedImporter(self):
-        importer = Importer()
-        importer.sp = MagicMock()
+        importer = Importer(api=FakeApi())
+        importer.sp = importer.api.client
         importer.sp.search.return_value = {"tracks": {"items": [fakeTrack]}}
         return importer
 
@@ -88,11 +101,34 @@ class TestMusicoletImport(unittest.TestCase):
             
         tracks = list(importer._import(dummyDataFunction, history, known=[], progressCallback=progressCallback))
         
-        prefetchCalls = [c for c in progressCalls if "Fetching batch metadata" in c[3]]
-        
-        self.assertEqual(len(prefetchCalls), 2)
-        self.assertEqual(prefetchCalls[0][1], 1)
-        self.assertEqual(prefetchCalls[1][1], 2)
+        prefetchCalls = [c for c in progressCalls if "Fetching track metadata" in c[3]]
+
+        self.assertEqual([c[3] for c in prefetchCalls], [
+            "Fetching track metadata (1/2)...",
+            "Fetching track metadata (2/2)...",
+        ])
+        self.assertEqual(len(tracks), 2)
+
+    def testKnownTracksSkipTheApi(self):
+        importer = self.mockedImporter()
+        known = [{"id": "uriA", "name": "Track A", "artists": [{"name": "Artist A"}]}]
+        history = [("Track A", "Artist A", "2023-01-01 00:00:00", 180000, "uriA")]
+        tracks = list(importer._import(lambda item: item, history, known=known))
+        self.assertEqual(len(tracks), 1)
+        self.assertEqual(importer.api.calls, 0)
+
+    def testRateLimitStopsImportInsteadOfStubbing(self):
+        from Database.spotifyApi import RateLimitedError
+        importer = self.mockedImporter()
+        importer.api.call = MagicMock(side_effect=RateLimitedError(0))
+        history = [("Track A", "Artist A", "2023-01-01 00:00:00", 180000, "uriA")]
+        with self.assertRaises(RateLimitedError):
+            list(importer._import(lambda item: item, history, known=[]))
+
+    def testSearchUsesSingleResult(self):
+        importer = self.mockedImporter()
+        importer._searchForSong("Song One", "Artist One")
+        importer.sp.search.assert_called_once_with("track:Song One artist:Artist One", type="track", limit=1)
 
 
 if __name__ == "__main__":

@@ -1,78 +1,61 @@
-import signal
+import os
 import threading
-import time
-from SpotipyFree import Spotify
-from Database.utils import parseError
+
+try:
+    from Database.spotifyApi import RateLimitedError, SpotifyAuthError
+    from Database.utils import parseError
+except ModuleNotFoundError:
+    from spotifyApi import RateLimitedError, SpotifyAuthError
+    from utils import parseError
+
+DEFAULT_POLL_INTERVAL = 120
+
+
+def _pollIntervalFromEnv():
+    try:
+        return max(30, int(os.environ.get("SPOTIFY_POLL_INTERVAL", DEFAULT_POLL_INTERVAL)))
+    except (TypeError, ValueError):
+        return DEFAULT_POLL_INTERVAL
+
 
 class Listener:
-    def __init__(self, cookiesFile, refreshInterval=6):
-        self.run = False
-        self.sp = self._createSpotifyClient(cookiesFile, refreshInterval)
-        self.recentlyPlayed_Z1 = self.sp.current_user_recently_played()
+    """ Polls the official recently-played endpoint. De-duplication happens in the callback. """
 
-    def _createSpotifyClient(self, cookiesFile, refreshInterval):
-        if threading.current_thread() is threading.main_thread():
-            spotify = Spotify(cookiesFile=cookiesFile)
-            spotify.startRecentlyPlayedListener(refreshInterval=refreshInterval)
-            return spotify
-
-        originalSignal = signal.signal
-
-        def _safeSignal(*args, **kwargs):
-            return None
-
-        try:
-            signal.signal = _safeSignal
-            spotify = Spotify(cookiesFile=cookiesFile)
-            spotify.startRecentlyPlayedListener(refreshInterval=refreshInterval)
-            return spotify
-        finally:
-            signal.signal = originalSignal
+    def __init__(self, api, pollInterval=None):
+        self.api = api
+        self.pollInterval = pollInterval or _pollIntervalFromEnv()
+        self._stopEvent = threading.Event()
+        self.thread = None
 
     def isLoggedIn(self):
-        if self.sp.isLoggedIn() == False:
-            return False
+        return self.api.isConnected()
+
+    def pollOnce(self, callback):
+        if not self.api.isConnected():
+            return
         try:
-            self.sp.current_user()
-            return True
-        except:
-            return False
-
-    def getNewItems(self, new: list):
-        oldTimes = [item["played_at"] for item in self.recentlyPlayed_Z1]
-
-        for i, item in enumerate(new):
-            # print("Comparing item played at:", item["played_at"], "with old times:", oldTimes)
-            if item["played_at"] not in oldTimes:
-                return new[i:]
-
-        return None
-
-    def track(self, id):
-        return self.sp.track(id)
-    
-    def playlistName(self, playlistId):
-        return self.sp.playlist(playlistId).get("name", "Unknown Playlist")
-    def albumName(self, albumId):
-        return self.sp.album(albumId).get("name", "Unknown Album")
+            items = self.api.recentlyPlayed(limit=50)
+        except RateLimitedError as e:
+            print(f"Listener paused: {e}")
+            return
+        except SpotifyAuthError as e:
+            print(f"Listener paused, Spotify login needed ({e.reason})")
+            return
+        if items:
+            callback(items)
 
     def startListener(self, callback):
-        self.run = True
-        while self.run:
+        print(f"Recently-played listener polling every {self.pollInterval}s")
+        while not self._stopEvent.is_set():
             try:
-                recentlyPlayed = self.sp.current_user_recently_played()    #< doesn't trigger any websocket requests (spam safe)
-                if recentlyPlayed != self.recentlyPlayed_Z1:
-                    callback(self.getNewItems(recentlyPlayed))
-                    # print(f"New items found, callback executed. with {self.getNewItems(recentlyPlayed)}")
-                    self.recentlyPlayed_Z1 = recentlyPlayed
-                time.sleep(1)
+                self.pollOnce(callback)
             except Exception as e:
                 print("Error in listener:", parseError(e))
-                time.sleep(30)
+            self._stopEvent.wait(self.pollInterval)
 
     def startListener_thread(self, callback):
-        thread = threading.Thread(target=self.startListener, args=(callback,), daemon=True)
-        thread.start()
-    
+        self.thread = threading.Thread(target=self.startListener, args=(callback,), daemon=True)
+        self.thread.start()
+
     def stop(self):
-        self.run = False
+        self._stopEvent.set()

@@ -16,4 +16,11 @@ services:
       - TZ=America/Los_Angeles        #< don't forget to change this or you will get the wrong times for songs
       # - IMPORT_KEYWORD=Weekly       #< Uncomment to apply a filter to what files get auto-imported (only files containing this will be imported)
       - FLASK_DEBUG=1               #< To get more detailed logs from Flask (provide this when opening an issue)
+      # Spotify Web API app (developer.spotify.com/dashboard). Put the values in a .env file next to this one
+      # (gitignored). Add the same redirect URI in the dashboard; it must be HTTPS unless it's a loopback address.
+      - SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID}
+      - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET}
+      - SPOTIFY_REDIRECT_URI=${SPOTIFY_REDIRECT_URI}   #< e.g. https://your-tracker-host/callback
+      # - SPOTIFY_POLL_INTERVAL=120      #< seconds between recently-played checks
+      # - SPOTIFY_MAX_RETRY_WAIT=300     #< longest the importer waits on a Spotify rate limit before stopping
     restart: always
