@@ -2681,3 +2681,20 @@ a.track-label {
     text-align: left;
   }
 }
+
+.pm-link {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.pm-link:hover {
+  color: var(--accent-muted);
+}
+
+.pm-link:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+  border-radius: 2px;
+}
