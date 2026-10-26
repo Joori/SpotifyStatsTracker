@@ -63,6 +63,7 @@ Optional env: `SPOTIFY_POLL_INTERVAL` (default 120s), `SPOTIFY_MAX_RETRY_WAIT` (
 - Import your Spotify data export (account or extended history), several files at once
 - Import Musicolet exports
 - Auto-import files dropped into the `autoImport` folder, with optional filtering
+- Your Spotify display name and avatar in the sidebar (refreshed daily)
 - A read-only JSON summary for home dashboards (see below)
 
 Screenshots are in the `assets` folder.

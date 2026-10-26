@@ -181,6 +181,42 @@ button {
   line-height: 1.2;
 }
 
+.sidebar-profile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 6px 12px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  min-width: 0;
+}
+
+.sidebar-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: none;
+}
+
+.sidebar-avatar-initial {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.sidebar-profile-name {
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .nav-links {
   display: flex;
   flex-direction: column;

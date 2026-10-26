@@ -14,6 +14,7 @@ from Database import analytics as analyticsLib
 from Database.Migrators.migrate import migrateIfNeeded
 from Database.utils import msToString, convertToDatetime, formatDuration, dateToString, versionTuple, now, parseDateString
 from Database.spotifyApi import SpotifyApi
+from Database.profile import ProfileStore
 from spotipy.exceptions import SpotifyOauthError
 
 EXPLORE_TABS = (
@@ -32,6 +33,8 @@ class SpotifyDashboardApp:
         self.spotify = SpotifyApi(self.baseDir / "secrets" / ".spotify_token_cache")
         self.pendingOAuthStates = {}          #< state -> (created, next path); single-user app, kept in memory
         self.database = Database(user=self.username, spotifyApi=self.spotify)
+        self.userFolder = self.baseDir / "Database" / "Users" / self.username
+        self.profile = ProfileStore(self.spotify, self.userFolder)
         self.database.startAutoImporter()
         self.database.resetProgress()
         try:
@@ -1101,6 +1104,11 @@ class SpotifyDashboardApp:
             imageDir = os.path.join(self.baseDir, "Database", "Users", username, "img", "playlists")
             return send_from_directory(imageDir, filename)
 
+        @self.app.route('/img/<username>/profile/<filename>')
+        def serveProfileImage(username, filename):
+            imageDir = os.path.join(self.baseDir, "Database", "Users", username, "img", "profile")
+            return send_from_directory(imageDir, filename)
+
         @self.app.route('/img/<username>/artists/<filename>')
         def serveArtistImage(username, filename):
             imageDir = os.path.join(self.baseDir, "Database", "Users", username, "img", "artists")
@@ -1186,6 +1194,20 @@ class SpotifyDashboardApp:
             # Pages that show plays refresh themselves when new plays are saved (not import/login pages)
             liveRefresh = request.endpoint not in ("importPage", "login", "loginStart", "oauthCallback")
             return {"dataVersion": getattr(self.database, "dataVersion", None) if liveRefresh else None}
+
+        @self.app.context_processor
+        def injectProfile():
+            store = getattr(self, "profile", None)
+            if store is None or request.endpoint in ("login", "loginStart", "oauthCallback"):
+                return {"spotifyProfile": {}}
+            try:
+                profile = dict(store.get())
+                if profile.get("avatarFile"):
+                    profile["avatarUrl"] = f"/img/{self.username}/profile/{profile['avatarFile']}"
+                return {"spotifyProfile": profile}
+            except Exception as e:
+                print(f"Profile unavailable: {e}")
+                return {"spotifyProfile": {}}
 
         @self.app.route("/import-progress", methods=["GET"])
         def importProgress():
