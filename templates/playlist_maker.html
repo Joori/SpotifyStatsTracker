@@ -1,0 +1,105 @@
+{% extends "layout.html" %}
+{% block content %}
+<header class="page-header">
+  <h1>Playlist maker</h1>
+  <p>Make private Spotify playlists from your listening history. Preview the songs first; nothing changes on Spotify until you press the button.</p>
+</header>
+
+{% if error %}
+<p class="error" role="alert">{{ error }}</p>
+{% endif %}
+
+<section class="pm-generators" aria-label="Playlist types">
+  <form class="pm-card" method="get" action="{{ url_for('playlistMakerPage') }}">
+    <input type="hidden" name="kind" value="top-year" />
+    <h2>Top 50 of a year</h2>
+    <p>Your 50 most played songs of the year.</p>
+    <label for="pm-top-year">Year</label>
+    <select id="pm-top-year" name="year" required>
+      {% for y in years %}
+      <option value="{{ y }}" {% if kind == 'top-year' and year == y|string %}selected{% endif %}>{{ y }}</option>
+      {% endfor %}
+    </select>
+    <button class="primary-button" type="submit" {% if not years %}disabled{% endif %}>Preview</button>
+  </form>
+
+  <form class="pm-card" method="get" action="{{ url_for('playlistMakerPage') }}">
+    <input type="hidden" name="kind" value="forgotten" />
+    <h2>Forgotten favourites</h2>
+    <p>Songs you played 10+ times back then, but 2 times or fewer in the last 12 months.</p>
+    <label for="pm-forgotten-year">From</label>
+    <select id="pm-forgotten-year" name="year">
+      <option value="">Any time before the last 12 months</option>
+      {% for y in forgottenYears %}
+      <option value="{{ y }}" {% if kind == 'forgotten' and year == y|string %}selected{% endif %}>{{ y }}</option>
+      {% endfor %}
+    </select>
+    <button class="primary-button" type="submit">Preview</button>
+  </form>
+
+  <form class="pm-card" method="get" action="{{ url_for('playlistMakerPage') }}">
+    <input type="hidden" name="kind" value="peak-obsessions" />
+    <h2>Peak obsessions</h2>
+    <p>The 50 songs you played the most in a single day, all time.</p>
+    <button class="primary-button" type="submit">Preview</button>
+  </form>
+</section>
+
+{% if preview %}
+<section class="pm-preview" aria-label="Preview" id="preview">
+  <header class="pm-preview-header">
+    <div>
+      <h2>{{ preview.name }}</h2>
+      <p class="muted">{{ preview.description }}</p>
+      <p class="muted">{{ rows|length }} song{{ '' if rows|length == 1 else 's' }} · private playlist</p>
+    </div>
+    {% if rows %}
+    <form method="post" action="{{ url_for('playlistMakerPublish') }}" class="pm-publish">
+      <input type="hidden" name="kind" value="{{ kind }}" />
+      <input type="hidden" name="year" value="{{ year }}" />
+      <button class="primary-button" type="submit">{% if existing %}Update playlist on Spotify{% else %}Create playlist on Spotify{% endif %}</button>
+    </form>
+    {% endif %}
+  </header>
+
+  {% if result %}
+  <p class="pm-result" role="status">
+    {% if result.created %}Created{% else %}Updated{% endif %} "{{ existing.name if existing else preview.name }}" on Spotify{% if existing %} with {{ existing.trackCount }} songs. <a href="{{ existing.url }}" target="_blank" rel="noopener noreferrer">Open in Spotify</a>{% else %}.{% endif %}
+  </p>
+  {% elif existing %}
+  <p class="muted">You made this playlist before{% if existing.updatedAt %} (last updated {{ existing.updatedAt[:10] }}){% endif %}. Updating replaces its songs with this list. <a href="{{ existing.url }}" target="_blank" rel="noopener noreferrer">Open in Spotify</a></p>
+  {% endif %}
+
+  {% if rows %}
+  <ol class="pm-tracks">
+    {% for row in rows %}
+    <li>
+      <a class="insight-entity" href="/song/{{ row.id }}">
+        {% if row.imageId %}
+        <img loading="lazy" src="/img/{{ username }}/tracks/{{ row.imageId }}.jpeg" alt="" onerror="this.style.display='none'" />
+        {% endif %}
+        <div>
+          <strong>{{ row.name }}</strong>
+          <span>{{ row.artistsText }}</span>
+          <span>{{ row.detail }}</span>
+        </div>
+      </a>
+    </li>
+    {% endfor %}
+  </ol>
+  {% else %}
+  <p class="loading">No songs match this yet.</p>
+  {% endif %}
+</section>
+<script>
+  // One click is enough: stop double submits while Spotify answers
+  document.querySelectorAll('.pm-publish').forEach((form) => {
+    form.addEventListener('submit', () => {
+      const button = form.querySelector('button');
+      button.disabled = true;
+      button.textContent = 'Working…';
+    });
+  });
+</script>
+{% endif %}
+{% endblock %}

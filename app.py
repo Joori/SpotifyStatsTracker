@@ -13,11 +13,13 @@ from Database.database import Database
 from Database import analytics as analyticsLib
 from Database.Migrators.migrate import migrateIfNeeded
 from Database.utils import msToString, convertToDatetime, formatDuration, dateToString, versionTuple, now, parseDateString
-from Database.spotifyApi import SpotifyApi
+from Database.spotifyApi import SpotifyApi, RateLimitedError, SpotifyAuthError
 from Database.profile import ProfileStore
 from Database.nowPlaying import NowPlaying
 from Database.spotifyTop import SpotifyTopStore
 from Database.likedSongs import LikedStore
+from Database import playlistGenerator
+from spotipy.exceptions import SpotifyException
 from spotipy.exceptions import SpotifyOauthError
 
 EXPLORE_TABS = (
@@ -41,6 +43,7 @@ class SpotifyDashboardApp:
         self.nowPlaying = NowPlaying(self.spotify)
         self.spotifyTop = SpotifyTopStore(self.spotify, self.userFolder)
         self.likedSongs = LikedStore(self.spotify, self.userFolder)
+        self.playlistPublisher = playlistGenerator.PlaylistPublisher(self.spotify, self.userFolder)
         self.database.startAutoImporter()
         self.database.resetProgress()
         try:
@@ -1237,7 +1240,8 @@ class SpotifyDashboardApp:
         @self.app.context_processor
         def injectDataVersion():
             # Pages that show plays refresh themselves when new plays are saved (not import/login pages)
-            liveRefresh = request.endpoint not in ("importPage", "login", "loginStart", "oauthCallback")
+            liveRefresh = request.endpoint not in ("importPage", "login", "loginStart", "oauthCallback",
+                                                  "playlistMakerPage", "playlistMakerPublish")
             return {"dataVersion": getattr(self.database, "dataVersion", None) if liveRefresh else None}
 
         @self.app.context_processor
@@ -1554,6 +1558,82 @@ class SpotifyDashboardApp:
         def topArtistsPage():
             queryArgs = {key: value for key, value in request.args.items() if key != "tab"}
             return redirect(url_for("explorePage", tab="artists", **queryArgs))
+
+        def _sameOrigin():
+            """ Only accept writes sent from the tracker's own pages (also when behind a reverse proxy). """
+            origin = request.headers.get("Origin") or request.headers.get("Referer") or ""
+            if not origin:
+                return False
+            allowed = {request.host, urlparse(self.spotify.redirectUri or "").netloc}
+            forwarded = request.headers.get("X-Forwarded-Host", "")
+            allowed.update(h.strip() for h in forwarded.split(",") if h.strip())
+            return urlparse(origin).netloc in allowed - {""}
+
+        def _playlistMakerPage(error=None, result=None, status=200):
+            kind = request.values.get("kind", "")
+            params = {"year": request.values.get("year", "")}
+            years = self.database.getAvailableYears()
+            cutoff = (now() - timedelta(days=playlistGenerator.RECENT_DAYS)).year
+            preview, previewError = None, None
+            if kind:
+                try:
+                    preview = playlistGenerator.generate(kind, params, self.database._loadEntries(), self.database._loadTracks() or {})
+                except playlistGenerator.GeneratorError as e:
+                    previewError = str(e)
+            tracks = self.database._loadTracks() or {}
+            rows = []
+            for item in (preview or {}).get("tracks", []):
+                track = tracks.get(item["id"]) or {}
+                rows.append({
+                    "id": item["id"], "detail": item["detail"], "name": track.get("name", "Unknown"),
+                    "imageId": track.get("imageId"),
+                    "artistsText": ", ".join(a.get("name", "") for a in track.get("artists") or [] if isinstance(a, dict)),
+                })
+            existing = self.playlistPublisher.existing(preview["key"]) if preview else None
+            return render_template(
+                "playlist_maker.html",
+                username=self.username,
+                kind=kind, year=params["year"], years=list(reversed(years)),
+                forgottenYears=[y for y in reversed(years) if y < cutoff],
+                preview=preview, rows=rows, existing=existing,
+                error=error or previewError, result=result,
+            ), status
+
+        @self.app.route("/playlist-maker", methods=["GET"])
+        def playlistMakerPage():
+            if not self.isLoggedIn:
+                return redirect(url_for("login", next=request.full_path))
+            result = None
+            if request.args.get("done") in ("created", "updated"):
+                result = {"created": request.args["done"] == "created"}
+            return _playlistMakerPage(result=result)
+
+        @self.app.route("/playlist-maker", methods=["POST"])
+        def playlistMakerPublish():
+            if not self.isLoggedIn:
+                return redirect(url_for("login", next=url_for("playlistMakerPage")))
+            if not _sameOrigin():
+                return _playlistMakerPage(error="That request didn't come from this tracker, so nothing was changed.", status=403)
+            kind, year = request.form.get("kind", ""), request.form.get("year", "")
+            try:
+                playlist = playlistGenerator.generate(kind, {"year": year}, self.database._loadEntries(), self.database._loadTracks() or {})
+                record = self.playlistPublisher.publish(playlist)
+            except playlistGenerator.GeneratorError as e:
+                return _playlistMakerPage(error=str(e), status=400)
+            except RateLimitedError as e:
+                return _playlistMakerPage(error=f"Spotify is rate limiting requests. Try again after {time.strftime('%H:%M', time.localtime(e.retryAt))}.", status=503)
+            except SpotifyAuthError:
+                return redirect(url_for("login", next=url_for("playlistMakerPage")))
+            except SpotifyException as e:
+                print(f"Playlist publish failed: {e}")
+                return _playlistMakerPage(error=playlistGenerator.describeSpotifyError(e), status=502)
+            except requests.RequestException as e:
+                print(f"Playlist publish failed: {e}")
+                return _playlistMakerPage(error="Couldn't reach Spotify. Try again in a moment.", status=502)
+            args = {"kind": kind, "done": "created" if record["created"] else "updated"}
+            if year:
+                args["year"] = year
+            return redirect(url_for("playlistMakerPage", **args))
 
         @self.app.route("/insights", methods=["GET"])
         def insightsPage():

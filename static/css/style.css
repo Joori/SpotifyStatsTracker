@@ -2514,3 +2514,94 @@ a.track-label {
   color: var(--muted);
   font-weight: 600;
 }
+
+/* Playlist maker */
+.pm-generators {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space);
+  margin-bottom: 24px;
+}
+
+.pm-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.pm-card h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.pm-card p {
+  margin: 0;
+  color: var(--muted);
+  flex: 1;
+}
+
+.pm-card label {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.pm-card select {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  color: var(--text);
+  font: inherit;
+}
+
+.pm-card .primary-button {
+  align-self: flex-start;
+  padding: 10px 16px;
+}
+
+.pm-preview-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.pm-preview-header h2 {
+  margin: 0 0 4px;
+}
+
+.pm-preview-header p {
+  margin: 0 0 4px;
+}
+
+.pm-result {
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.pm-result a {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.pm-tracks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 8px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.pm-tracks .insight-entity {
+  height: 100%;
+  box-sizing: border-box;
+}
