@@ -88,8 +88,8 @@ class SpotifyDashboardApp:
         thread.start()
 
     def _versionCheckLoop(self):
-        # Check version from GitHub at startup and then every hour.
-        url = "https://raw.githubusercontent.com/TzurSoffer/SpotifyStatsTracker/main/Database/VERSION"
+        # Check this fork's Database/VERSION on GitHub at startup and then every hour.
+        url = "https://raw.githubusercontent.com/Joori/SpotifyStatsTracker/main/Database/VERSION"
         while True:
             try:
                 resp = requests.get(url, timeout=6)
