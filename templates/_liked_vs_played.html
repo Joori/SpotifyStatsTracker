@@ -4,11 +4,13 @@
 {% set localHref = ('/song/' ~ row.localId) if row.localId else None %}
 {% set href = localHref or row.url %}
 <a class="insight-entity" {% if href %}href="{{ href }}"{% endif %}{% if not localHref and row.url %} target="_blank" rel="noopener noreferrer"{% endif %} data-show-more-item{% if hide %} hidden{% endif %}>
-  {% if row.imageId %}
-  <img loading="lazy" src="/img/{{ username }}/tracks/{{ row.imageId }}.jpeg" alt="" onerror="this.style.display='none'" />
-  {% elif row.imageUrl %}
-  <img loading="lazy" src="{{ row.imageUrl }}" alt="" onerror="this.style.display='none'" />
-  {% endif %}
+  <span class="entity-cover" aria-hidden="true">
+    {% if row.imageId %}
+    <img loading="lazy" src="/img/{{ username }}/tracks/{{ row.imageId }}.jpeg" alt="" onerror="this.remove()" />
+    {% elif row.imageUrl %}
+    <img loading="lazy" src="{{ row.imageUrl }}" alt="" onerror="this.remove()" />
+    {% endif %}
+  </span>
   <div>
     <strong>{{ row.name }}</strong>
     {% if row.subtitle %}<span>{{ row.subtitle }}</span>{% endif %}

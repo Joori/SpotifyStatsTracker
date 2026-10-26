@@ -294,9 +294,11 @@
         <div class="peak-obsession-list">
           {% for item in peakObsession.days %}
           <a class="insight-entity" href="/song/{{ item.trackId }}" data-show-more-item{% if loop.index > completion_preview %} hidden{% endif %}>
-            {% if item.imageId %}
-            <img loading="lazy" src="/img/{{ username }}/tracks/{{ item.imageId }}.jpeg" alt="" onerror="this.style.display='none'" />
-            {% endif %}
+            <span class="entity-cover" aria-hidden="true">
+              {% if item.imageId %}
+              <img loading="lazy" src="/img/{{ username }}/tracks/{{ item.imageId }}.jpeg" alt="" onerror="this.remove()" />
+              {% endif %}
+            </span>
             <div>
               <strong>{{ item.name }}</strong>
               <span>{{ item.artistsText }}</span>
@@ -315,9 +317,11 @@
           <div class="peak-obsession-list">
             {% for item in peakObsession.weeks %}
             <a class="insight-entity" href="/song/{{ item.trackId }}" data-show-more-item{% if loop.index > completion_preview %} hidden{% endif %}>
-              {% if item.imageId %}
-              <img loading="lazy" src="/img/{{ username }}/tracks/{{ item.imageId }}.jpeg" alt="" onerror="this.style.display='none'" />
-              {% endif %}
+              <span class="entity-cover" aria-hidden="true">
+                {% if item.imageId %}
+                <img loading="lazy" src="/img/{{ username }}/tracks/{{ item.imageId }}.jpeg" alt="" onerror="this.remove()" />
+                {% endif %}
+              </span>
               <div>
                 <strong>{{ item.name }}</strong>
                 <span>{{ item.artistsText }}</span>
@@ -341,9 +345,11 @@
         <div class="peak-obsession-list">
           {% for song in trendingSongs %}
           <a class="insight-entity" href="/song/{{ song.id }}" data-show-more-item{% if loop.index > list_preview %} hidden{% endif %}>
-            {% if song.imageId %}
-            <img loading="lazy" src="/img/{{ username }}/tracks/{{ song.imageId }}.jpeg" alt="" onerror="this.style.display='none'" />
-            {% endif %}
+            <span class="entity-cover" aria-hidden="true">
+              {% if song.imageId %}
+              <img loading="lazy" src="/img/{{ username }}/tracks/{{ song.imageId }}.jpeg" alt="" onerror="this.remove()" />
+              {% endif %}
+            </span>
             <div>
               <strong>{{ song.name }}</strong>
               <span>{{ song.artistsText }}</span>

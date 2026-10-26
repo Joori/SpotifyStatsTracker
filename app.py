@@ -44,6 +44,7 @@ class SpotifyDashboardApp:
         self.spotifyTop = SpotifyTopStore(self.spotify, self.userFolder)
         self.likedSongs = LikedStore(self.spotify, self.userFolder)
         self.playlistPublisher = playlistGenerator.PlaylistPublisher(self.spotify, self.userFolder)
+        self.playabilityChecker = playlistGenerator.PlayabilityChecker(self.spotify, self.userFolder)
         self.database.startAutoImporter()
         self.database.resetProgress()
         try:
@@ -1569,26 +1570,30 @@ class SpotifyDashboardApp:
             allowed.update(h.strip() for h in forwarded.split(",") if h.strip())
             return urlparse(origin).netloc in allowed - {""}
 
-        def _playlistMakerPage(error=None, result=None, status=200):
-            kind = request.values.get("kind", "")
+        def _playlistMakerPage(error=None, result=None, status=200, showPreview=True):
+            kind = request.values.get("kind", "") if showPreview else ""
             params = {"year": request.values.get("year", "")}
             years = self.database.getAvailableYears()
             cutoff = (now() - timedelta(days=playlistGenerator.RECENT_DAYS)).year
-            preview, previewError = None, None
+            preview, previewError, selection = None, None, {"tracks": [], "skipped": [], "pending": 0}
             if kind:
                 try:
                     preview = playlistGenerator.generate(kind, params, self.database._loadEntries(), self.database._loadTracks() or {})
+                    selection = playlistGenerator.selectPlayable(preview, self.playabilityChecker)
                 except playlistGenerator.GeneratorError as e:
                     previewError = str(e)
             tracks = self.database._loadTracks() or {}
-            rows = []
-            for item in (preview or {}).get("tracks", []):
+
+            def toRow(item):
                 track = tracks.get(item["id"]) or {}
-                rows.append({
+                return {
                     "id": item["id"], "detail": item["detail"], "name": track.get("name", "Unknown"),
-                    "imageId": track.get("imageId"),
+                    "imageId": track.get("imageId"), "unavailable": item.get("unavailable"),
                     "artistsText": ", ".join(a.get("name", "") for a in track.get("artists") or [] if isinstance(a, dict)),
-                })
+                }
+            rows = [toRow(i) for i in selection["tracks"]]
+            skippedRows = [toRow(i) for i in selection["skipped"]]
+            pausedUntil = self.playabilityChecker.pausedUntil() if selection["pending"] else None
             existing = self.playlistPublisher.existing(preview["key"]) if preview else None
             return render_template(
                 "playlist_maker.html",
@@ -1596,6 +1601,8 @@ class SpotifyDashboardApp:
                 kind=kind, year=params["year"], years=list(reversed(years)),
                 forgottenYears=[y for y in reversed(years) if y < cutoff],
                 preview=preview, rows=rows, existing=existing,
+                skippedRows=skippedRows, pending=selection["pending"],
+                checkPausedUntil=time.strftime("%H:%M", time.localtime(pausedUntil)) if pausedUntil else None,
                 error=error or previewError, result=result,
             ), status
 
@@ -1613,11 +1620,15 @@ class SpotifyDashboardApp:
             if not self.isLoggedIn:
                 return redirect(url_for("login", next=url_for("playlistMakerPage")))
             if not _sameOrigin():
-                return _playlistMakerPage(error="That request didn't come from this tracker, so nothing was changed.", status=403)
+                return _playlistMakerPage(error="That request didn't come from this tracker, so nothing was changed.",
+                                          status=403, showPreview=False)
             kind, year = request.form.get("kind", ""), request.form.get("year", "")
             try:
                 playlist = playlistGenerator.generate(kind, {"year": year}, self.database._loadEntries(), self.database._loadTracks() or {})
-                record = self.playlistPublisher.publish(playlist)
+                selection = playlistGenerator.selectPlayable(playlist, self.playabilityChecker)
+                if selection["pending"]:
+                    return _playlistMakerPage(error="Still checking which songs are available in your region. Try again in a moment.", status=409)
+                record = self.playlistPublisher.publish(dict(playlist, tracks=selection["tracks"]))
             except playlistGenerator.GeneratorError as e:
                 return _playlistMakerPage(error=str(e), status=400)
             except RateLimitedError as e:

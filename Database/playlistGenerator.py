@@ -10,19 +10,23 @@ again updates that playlist instead of making a duplicate.
 import datetime
 import re
 import threading
+import time
 
 from spotipy.exceptions import SpotifyException
 
 try:
-    from Database.spotifyCache import CachedJson
+    from Database.spotifyCache import CachedJson, BACKGROUND_MAX_WAIT, RETRY_AFTER_FAILURE
+    from Database.spotifyApi import RateLimitedError, SpotifyAuthError
     from Database.utils import convertToDatetime
     from Database import analytics
 except ModuleNotFoundError:
-    from spotifyCache import CachedJson
+    from spotifyCache import CachedJson, BACKGROUND_MAX_WAIT, RETRY_AFTER_FAILURE
+    from spotifyApi import RateLimitedError, SpotifyAuthError
     from utils import convertToDatetime
     import analytics
 
 PLAYLIST_SIZE = 50
+CANDIDATES = PLAYLIST_SIZE * 3   #< ranked songs kept so unavailable ones can be replaced by the next ones
 ITEMS_PER_REQUEST = 100
 MARKER = "Made by SpotifyStatsTracker."
 FORGOTTEN_MIN_PLAYS = 10       #< "a favourite" in the past period
@@ -62,9 +66,17 @@ def _yearBounds(year):
 
 def generate(kind, params, entries, tracks, now=None):
     """
-    Returns {"key", "name", "description", "tracks": [{"id", "detail"}]} for one generator.
+    Returns {"key", "name", "description", "candidates", "tracks"} for one generator.
+    candidates: up to CANDIDATES ranked [{"id", "detail"}]; tracks: the first PLAYLIST_SIZE of them,
+    before any availability check (see selectPlayable).
     kind: "top-year" (params: year), "forgotten" (params: year, optional), "peak-obsessions".
     """
+    playlist = _generate(kind, params, entries, tracks, now)
+    playlist["tracks"] = playlist["candidates"][:PLAYLIST_SIZE]
+    return playlist
+
+
+def _generate(kind, params, entries, tracks, now=None):
     now = now or datetime.datetime.now().astimezone()
     usable = lambda tid: tid in tracks and SPOTIFY_ID.fullmatch(tid or "")
 
@@ -74,12 +86,12 @@ def generate(kind, params, entries, tracks, now=None):
             raise GeneratorError("Pick a year.")
         start, end = _yearBounds(year)
         counts = _plays(entries, start, end)
-        ids = [t for t in _ranked(counts) if usable(t)][:PLAYLIST_SIZE]
+        ids = [t for t in _ranked(counts) if usable(t)][:CANDIDATES]
         return {
             "key": f"top-year-{year}",
             "name": f"Top 50 of {year}",
             "description": f"Your most played songs of {year}. {MARKER}",
-            "tracks": [{"id": t, "detail": f"{counts[t]} plays in {year}"} for t in ids],
+            "candidates": [{"id": t, "detail": f"{counts[t]} plays in {year}"} for t in ids],
         }
 
     if kind == "forgotten":
@@ -96,7 +108,7 @@ def generate(kind, params, entries, tracks, now=None):
         past = _plays(entries, start, end)
         recent = _plays(entries, recentStart)
         ids = [t for t in _ranked(past, FORGOTTEN_MIN_PLAYS)
-               if recent.get(t, 0) <= FORGOTTEN_MAX_RECENT and usable(t)][:PLAYLIST_SIZE]
+               if recent.get(t, 0) <= FORGOTTEN_MAX_RECENT and usable(t)][:CANDIDATES]
 
         def detail(t):
             r = recent.get(t, 0)
@@ -108,11 +120,11 @@ def generate(kind, params, entries, tracks, now=None):
             "name": f"Forgotten favourites{suffix}",
             "description": (f"Songs you played a lot {'in ' + period if year is not None else period} "
                             f"but {FORGOTTEN_MAX_RECENT} times or fewer in the last 12 months. {MARKER}"),
-            "tracks": [{"id": t, "detail": detail(t)} for t in ids],
+            "candidates": [{"id": t, "detail": detail(t)} for t in ids],
         }
 
     if kind == "peak-obsessions":
-        peaks = analytics.peakObsession(entries, tracks, limit=PLAYLIST_SIZE * 20)["days"]
+        peaks = analytics.peakObsession(entries, tracks, limit=CANDIDATES * 10)["days"]
         seen, picked = set(), []
         for peak in peaks:   #< sorted by single-day plays; keep each song's best day
             tid = peak["trackId"]
@@ -120,13 +132,13 @@ def generate(kind, params, entries, tracks, now=None):
                 continue
             seen.add(tid)
             picked.append({"id": tid, "detail": f"{peak['plays']} plays on {peak.get('bucketText') or peak['bucket']}"})
-            if len(picked) >= PLAYLIST_SIZE:
+            if len(picked) >= CANDIDATES:
                 break
         return {
             "key": "peak-obsessions",
             "name": "Peak obsessions",
             "description": f"The songs you played the most in a single day. {MARKER}",
-            "tracks": picked,
+            "candidates": picked,
         }
 
     raise GeneratorError("Unknown playlist type.")
@@ -140,6 +152,132 @@ def _intParam(params, name):
         return int(value)
     except (TypeError, ValueError):
         raise GeneratorError(f"Invalid {name}.")
+
+
+PLAYABILITY_MAX_AGE = 7 * 24 * 3600
+CHECK_PAUSE = 0.1   #< seconds between single-track lookups (bulk lookups were removed in 2026)
+UNAVAILABLE_TEXT = {
+    "market": "unavailable in your region",
+    "notFound": "no longer on Spotify",
+}
+
+
+def playabilityOf(track):
+    """ GET /tracks/{id}?market=from_token -> {"playable", "reason"}. """
+    restrictions = (track or {}).get("restrictions") or {}
+    if track.get("is_playable") is False or restrictions:
+        return {"playable": False, "reason": restrictions.get("reason") or "market"}
+    return {"playable": True, "reason": None}
+
+
+class PlayabilityChecker:
+    """
+    Checks, in a background thread, whether tracks can be played in your market, one request per
+    track through the shared client. Results are cached in playability.json for a week.
+    """
+
+    def __init__(self, api, userFolder, pause=CHECK_PAUSE, maxAge=PLAYABILITY_MAX_AGE, clock=time.time):
+        self.api = api
+        self.cache = CachedJson(userFolder / "playability.json")
+        self.pause = pause
+        self.maxAge = maxAge
+        self.clock = clock
+        self._lock = threading.Lock()
+        self._queue = []
+        self._running = False
+        self._pausedUntil = 0.0
+        self.lastError = None
+        self.thread = None
+
+    def known(self, trackId):
+        entry = (self.cache.load().get("tracks") or {}).get(trackId)
+        if not entry or self.clock() - entry.get("checkedAt", 0) > self.maxAge:
+            return None
+        return entry
+
+    def pausedUntil(self):
+        return self._pausedUntil if self._pausedUntil > self.clock() else None
+
+    def ensure(self, trackIds):
+        """ Queue unknown tracks and start the checker if needed. Never blocks. """
+        with self._lock:
+            for tid in trackIds:
+                if tid not in self._queue and self.known(tid) is None:
+                    self._queue.append(tid)
+            if self._running or not self._queue or self.pausedUntil() or not self.api.isConnected():
+                return
+            self._running = True
+        self.thread = threading.Thread(target=self._run, daemon=True, name="playability")
+        self.thread.start()
+
+    def checkNow(self, trackIds):
+        """ Synchronous variant (tests, tools). """
+        self.ensure(trackIds)
+        if self.thread:
+            self.thread.join()
+
+    def _run(self):
+        try:
+            while True:
+                with self._lock:
+                    if not self._queue:
+                        return
+                    tid = self._queue[0]
+                try:
+                    track = self.api.call(lambda c: c._get(f"tracks/{tid}", market="from_token"), maxWait=BACKGROUND_MAX_WAIT)
+                    result = playabilityOf(track or {})
+                except SpotifyException as e:
+                    if e.http_status in (400, 404):
+                        result = {"playable": False, "reason": "notFound"}
+                    else:
+                        raise
+                self._store(tid, result)
+                with self._lock:
+                    if tid in self._queue:
+                        self._queue.remove(tid)
+                time.sleep(self.pause)
+        except RateLimitedError as e:
+            self._pausedUntil = e.retryAt
+            self.lastError = str(e)
+            print(f"Availability check paused: {e}")
+        except (SpotifyAuthError, SpotifyException, Exception) as e:
+            self._pausedUntil = self.clock() + RETRY_AFTER_FAILURE
+            self.lastError = f"{type(e).__name__}: {e}"
+            print(f"Availability check failed (retrying in {RETRY_AFTER_FAILURE // 60} min): {self.lastError}")
+        finally:
+            with self._lock:
+                self._running = False
+
+    def _store(self, trackId, result):
+        data = self.cache.load()
+        tracks = dict(data.get("tracks") or {})
+        tracks[trackId] = dict(result, checkedAt=self.clock())
+        self.cache.save({"tracks": tracks})
+
+
+def selectPlayable(playlist, checker, size=PLAYLIST_SIZE):
+    """
+    Walks the ranked candidates: keeps playable songs, skips unavailable ones and backfills from the
+    next-ranked songs until there are `size`. Returns {"tracks", "skipped", "pending"}; while
+    pending > 0 the list isn't final (the checker is still looking songs up).
+    """
+    chosen, skipped, unknown = [], [], []
+    for candidate in playlist["candidates"]:
+        if len(chosen) + len(unknown) >= size:
+            break
+        state = checker.known(candidate["id"])
+        if state is None:
+            unknown.append(candidate)
+        elif state["playable"]:
+            chosen.append(candidate)
+        else:
+            skipped.append(dict(candidate, unavailable=UNAVAILABLE_TEXT.get(state.get("reason"), "unavailable on your account")))
+    if unknown:
+        checker.ensure([c["id"] for c in unknown])
+        # Show the songs still being checked in rank order, as if playable
+        order = {c["id"]: i for i, c in enumerate(playlist["candidates"])}
+        chosen = sorted(chosen + unknown, key=lambda c: order[c["id"]])
+    return {"tracks": chosen, "skipped": skipped, "pending": len(unknown)}
 
 
 class PlaylistPublisher:
@@ -193,14 +331,22 @@ class PlaylistPublisher:
             self._remember(playlist, targetId, len(uris), complete=False)   #< so a retry updates, not duplicates
             if not created:
                 self.api.call(lambda c: c._put(f"playlists/{targetId}", payload={
-                    "name": playlist["name"], "description": playlist["description"]}))
+                    "name": playlist["name"], "description": playlist["description"], "public": False}))
             first, rest = uris[:ITEMS_PER_REQUEST], uris[ITEMS_PER_REQUEST:]
             self.api.call(lambda c: c._put(f"playlists/{targetId}/items", payload={"uris": first}))
             for i in range(0, len(rest), ITEMS_PER_REQUEST):
                 chunk = rest[i:i + ITEMS_PER_REQUEST]
                 self.api.call(lambda c, ch=chunk: c._post(f"playlists/{targetId}/items", payload={"uris": ch}))
+            self._ensurePrivate(targetId)
             record = self._remember(playlist, targetId, len(uris), complete=True)
             return dict(record, created=created)
+
+    def _ensurePrivate(self, playlistId):
+        """ Read the playlist back; if Spotify kept it public, set public=false again and warn. """
+        state = self.api.call(lambda c: c._get(f"playlists/{playlistId}", fields="public")) or {}
+        if state.get("public") is not False:
+            print(f"Warning: playlist {playlistId} came back public={state.get('public')!r}; setting it to private")
+            self.api.call(lambda c: c._put(f"playlists/{playlistId}", payload={"public": False}))
 
     def _remember(self, playlist, playlistId, count, complete):
         data = self.store.load()

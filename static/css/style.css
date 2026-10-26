@@ -2318,6 +2318,37 @@ progress::-moz-progress-bar {
   background: var(--bg-sunken);
 }
 
+/* List cards: fixed-size cover on the left, text column takes the rest and wraps inside itself */
+.insight-entity {
+  flex-wrap: nowrap;
+}
+
+.insight-entity > .entity-cover {
+  display: block;
+  flex: none;
+  width: 48px;
+  height: 48px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg-sunken);
+}
+
+.insight-entity > .entity-cover img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.insight-entity > div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.insight-entity strong,
+.insight-entity > div > span {
+  overflow-wrap: anywhere;
+}
+
 .insight-entity {
   margin-bottom: 10px;
   text-decoration: none;
@@ -2398,11 +2429,10 @@ a.track-label {
   display: flex;
   align-items: center;
   gap: 14px;
-  margin: 0 0 var(--space);
+  margin: 0 auto 20px;   /* keep .page > * centring: same column as the filter and stat cards */
   padding: 12px 14px;
-  border: 1px solid var(--border-subtle);
   border-radius: var(--radius);
-  background: var(--surface);
+  background: var(--bg-raised);
   min-width: 0;
 }
 
@@ -2604,4 +2634,29 @@ a.track-label {
 .pm-tracks .insight-entity {
   height: 100%;
   box-sizing: border-box;
+}
+
+.pm-checking {
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  color: var(--muted);
+}
+
+.pm-skipped-title {
+  margin: 24px 0 4px;
+  font-size: 1rem;
+}
+
+.pm-skipped .insight-entity {
+  opacity: 0.7;
+}
+
+.pm-unavailable {
+  color: var(--negative) !important;
+}
+
+.pm-privacy-note {
+  margin-top: 20px;
+  font-size: 0.85rem;
 }

@@ -67,7 +67,7 @@ Optional env: `SPOTIFY_POLL_INTERVAL` (default 120s), `SPOTIFY_MAX_RETRY_WAIT` (
 - Now playing on the Overview: cover, artist and a progress bar (only checked while the page is open)
 - Spotify vs you: Spotify's own top artists and tracks (4 weeks, 6 months, 1 year) next to the tracker's counts, highlighting what Spotify ranks high but you rarely play, and the reverse
 - Liked vs played: liked songs you never or rarely play, and songs you play a lot but haven't liked (liked songs sync daily)
-- Playlist maker: private Spotify playlists from your history (Top 50 of a year, Forgotten favourites, Peak obsessions). Preview first; running one again updates its playlist instead of making a new one
+- Playlist maker: Spotify playlists from your history (Top 50 of a year, Forgotten favourites, Peak obsessions), kept off your profile. Songs Spotify won't play in your region are skipped and replaced. Preview first; running one again updates its playlist instead of making a new one. Spotify's API can't set the app's own "Make private" option, so do that in Spotify if you want it
 - A read-only JSON summary for home dashboards (see below)
 
 Screenshots are in the `assets` folder.

@@ -2,7 +2,7 @@
 {% block content %}
 <header class="page-header">
   <h1>Playlist maker</h1>
-  <p>Make private Spotify playlists from your listening history. Preview the songs first; nothing changes on Spotify until you press the button.</p>
+  <p>Make Spotify playlists from your listening history, kept off your profile. Preview the songs first; nothing changes on Spotify until you press the button.</p>
 </header>
 
 {% if error %}
@@ -51,16 +51,26 @@
     <div>
       <h2>{{ preview.name }}</h2>
       <p class="muted">{{ preview.description }}</p>
-      <p class="muted">{{ rows|length }} song{{ '' if rows|length == 1 else 's' }} · private playlist</p>
+      <p class="muted">{{ rows|length }} song{{ '' if rows|length == 1 else 's' }}{% if skippedRows %} · {{ skippedRows|length }} unavailable skipped{% endif %} · not shown on your profile</p>
     </div>
     {% if rows %}
     <form method="post" action="{{ url_for('playlistMakerPublish') }}" class="pm-publish">
       <input type="hidden" name="kind" value="{{ kind }}" />
       <input type="hidden" name="year" value="{{ year }}" />
-      <button class="primary-button" type="submit">{% if existing %}Update playlist on Spotify{% else %}Create playlist on Spotify{% endif %}</button>
+      <button class="primary-button" type="submit"{% if pending %} disabled{% endif %}>{% if existing %}Update playlist on Spotify{% else %}Create playlist on Spotify{% endif %}</button>
     </form>
     {% endif %}
   </header>
+
+  {% if pending %}
+  <p class="pm-checking" role="status">
+    {% if checkPausedUntil %}
+    Checking which songs are available in your region is paused: Spotify is rate limiting until {{ checkPausedUntil }}. {{ pending }} song{{ '' if pending == 1 else 's' }} still to check.
+    {% else %}
+    Checking which songs are available in your region… {{ pending }} song{{ '' if pending == 1 else 's' }} left. This page updates by itself.
+    {% endif %}
+  </p>
+  {% endif %}
 
   {% if result %}
   <p class="pm-result" role="status">
@@ -75,9 +85,11 @@
     {% for row in rows %}
     <li>
       <a class="insight-entity" href="/song/{{ row.id }}">
-        {% if row.imageId %}
-        <img loading="lazy" src="/img/{{ username }}/tracks/{{ row.imageId }}.jpeg" alt="" onerror="this.style.display='none'" />
-        {% endif %}
+        <span class="entity-cover" aria-hidden="true">
+          {% if row.imageId %}
+          <img loading="lazy" src="/img/{{ username }}/tracks/{{ row.imageId }}.jpeg" alt="" onerror="this.remove()" />
+          {% endif %}
+        </span>
         <div>
           <strong>{{ row.name }}</strong>
           <span>{{ row.artistsText }}</span>
@@ -90,7 +102,35 @@
   {% else %}
   <p class="loading">No songs match this yet.</p>
   {% endif %}
+
+  {% if skippedRows %}
+  <h3 class="pm-skipped-title">Skipped</h3>
+  <p class="muted">These would have made the list, but Spotify won't play them for you, so the next songs took their place.</p>
+  <ol class="pm-tracks pm-skipped">
+    {% for row in skippedRows %}
+    <li>
+      <a class="insight-entity" href="/song/{{ row.id }}">
+        <span class="entity-cover" aria-hidden="true">
+          {% if row.imageId %}
+          <img loading="lazy" src="/img/{{ username }}/tracks/{{ row.imageId }}.jpeg" alt="" onerror="this.remove()" />
+          {% endif %}
+        </span>
+        <div>
+          <strong>{{ row.name }}</strong>
+          <span>{{ row.artistsText }}</span>
+          <span class="pm-unavailable">{{ row.unavailable }}</span>
+        </div>
+      </a>
+    </li>
+    {% endfor %}
+  </ol>
+  {% endif %}
+
+  <p class="muted pm-privacy-note">The tracker creates playlists with "public" off, which keeps them off your Spotify profile. Spotify's API can't set the app's own private setting, so the app may still say "Public Playlist"; to hide it completely, choose <em>Make private</em> on the playlist in Spotify.</p>
 </section>
+{% if pending and not checkPausedUntil %}
+<script>setTimeout(() => { if (!document.hidden) location.reload(); else document.addEventListener('visibilitychange', () => location.reload(), { once: true }); }, 2500);</script>
+{% endif %}
 <script>
   // One click is enough: stop double submits while Spotify answers
   document.querySelectorAll('.pm-publish').forEach((form) => {
