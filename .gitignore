@@ -17,3 +17,6 @@ Database/Users/*/img/artists/*
 tmp/
 Database/**/*.json
 secrets/*
+
+# Backups made by tools/removeDuplicateLivePlays.py
+*.bak-*
