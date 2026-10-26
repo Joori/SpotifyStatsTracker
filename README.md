@@ -6,7 +6,18 @@ Fork of [kjljixx/SpotifyStatsTracker](https://github.com/kjljixx/SpotifyStatsTra
 ### Originally made by Tzur Soffer. If you found [the original repository](https://github.com/TzurSoffer/SpotifyStatsTracker) useful, please give it a ⭐!
 
 **This fork uses the official Spotify Web API instead of SpotipyFree / browser cookies**,
-so it stays within Spotify's Developer Terms. That changes the requirements:
+so it stays within Spotify's Developer Terms. That changes the requirements (see below).
+
+## What's new in 1.8.0
+
+- **Profile:** your Spotify name and avatar in the sidebar.
+- **Now playing:** a live card on the Overview, and in the dashboard API.
+- **Spotify vs you:** Spotify's own top lists next to what the tracker counted (Insights).
+- **Liked vs played:** liked songs you never play, and songs you play a lot but haven't liked (Insights).
+- **Playlist Maker:** make Spotify playlists from your history.
+
+Upgrading from 1.7: these need new Spotify permissions, so after updating the site shows
+**Relog to Spotify**. Log in once to grant them; live tracking pauses until you do.
 
 ## Requirements
 
@@ -25,14 +36,23 @@ so it stays within Spotify's Developer Terms. That changes the requirements:
        SPOTIFY_REDIRECT_URI=https://tracker.example.com/callback
 4. `docker compose up -d --build`, open the site, click **Connect to Spotify**.
 
-The tracker asks for these permissions (scopes): `user-read-recently-played`, `playlist-read-private`,
-`user-read-currently-playing`, `user-top-read`, `user-library-read` and `playlist-modify-private`.
+The tracker asks for these permissions (scopes):
+
+| Scope | Used for |
+| --- | --- |
+| `user-read-recently-played` | Live tracking |
+| `playlist-read-private` | Names of the playlists you played from |
+| `user-read-currently-playing` | Now playing |
+| `user-top-read` | Spotify vs you |
+| `user-library-read` | Liked vs played |
+| `playlist-modify-private` | Playlist Maker |
+
 If an update adds a scope, the site shows **Relog to Spotify** until you log in again; live tracking
 pauses until then.
 
 To check which endpoints and fields your app can use, run `python tools/probeSpotifyApi.py`
 (inside the container: `docker compose exec spotify-tracker python tools/probeSpotifyApi.py`).
-It prints status codes and field names only. `--write` also creates one private test playlist,
+It prints status codes and field names only. `--write` also creates one test playlist,
 "SST probe (delete me)", which you delete by hand.
 
 Optional env: `SPOTIFY_POLL_INTERVAL` (default 120s), `SPOTIFY_MAX_RETRY_WAIT` (default 300s),
@@ -50,6 +70,12 @@ Optional env: `SPOTIFY_POLL_INTERVAL` (default 120s), `SPOTIFY_MAX_RETRY_WAIT` (
   "Relog to Spotify" when that happens.
 - **Spotify-generated playlists** (Daily Mix, On Repeat, etc.) can't be read by Development Mode apps,
   so plays from them show the context as "Spotify mix".
+- **Top artists can be sparse.** Spotify sometimes returns few or no top artists for a period;
+  Spotify vs you then says so instead of comparing.
+- **Playlists show as "Public Playlist" in the Spotify app.** Playlists the tracker makes are kept
+  off your profile, but the API can't set the app's own private setting (see Playlist Maker).
+- **Song availability is checked one song at a time.** Development Mode apps can't look up
+  several tracks in one request, so the first preview of a playlist takes a few seconds.
 
 ## Features
 
@@ -64,10 +90,10 @@ Optional env: `SPOTIFY_POLL_INTERVAL` (default 120s), `SPOTIFY_MAX_RETRY_WAIT` (
 - Import Musicolet exports
 - Auto-import files dropped into the `autoImport` folder, with optional filtering
 - Your Spotify display name and avatar in the sidebar (refreshed daily)
-- Now playing on the Overview: cover, artist and a progress bar (only checked while the page is open)
-- Spotify vs you: Spotify's own top artists and tracks (4 weeks, 6 months, 1 year) next to the tracker's counts, highlighting what Spotify ranks high but you rarely play, and the reverse
-- Liked vs played: liked songs you never or rarely play, and songs you play a lot but haven't liked (liked songs sync daily)
-- Playlist maker: Spotify playlists from your history (Top 50 of a year, Forgotten favourites, Peak obsessions), kept off your profile. Songs Spotify won't play in your region are skipped and replaced. Preview first; running one again updates its playlist instead of making a new one. Spotify's API can't set the app's own "Make private" option, so do that in Spotify if you want it
+- Now playing on the Overview: cover, artist and a progress bar
+- Spotify vs you: Spotify's top artists and tracks next to the tracker's own counts
+- Liked vs played: liked songs you rarely play, and favourites you haven't liked
+- Playlist Maker: Spotify playlists made from your history
 - A read-only JSON summary for home dashboards (see below)
 
 Screenshots are in the `assets` folder.
@@ -99,6 +125,20 @@ Folders on the host:
 
 To update: `git pull`, then `docker compose up -d --build`.
 
+Your user folder (the folder under `Database/` that holds `entries.json`) also keeps these
+caches. They can be deleted safely; the tracker fetches them again when needed.
+
+| File | Holds | Refreshed |
+| --- | --- | --- |
+| `profile.json`, `img/profile/` | Your Spotify name and avatar | Daily |
+| `spotify_top.json` | Spotify's top artists and tracks | Every 6 hours |
+| `liked.json` | Your liked songs | Daily |
+| `playability.json` | Which songs Spotify will play in your region | Weekly |
+| `generated_playlists.json` | The playlist each Playlist Maker list created | When you create or update |
+
+Deleting `generated_playlists.json` makes Playlist Maker create new playlists next time instead of
+updating the old ones.
+
 ## Importing your history
 
 Request your data at https://www.spotify.com/account/privacy. The **Extended streaming history**
@@ -107,6 +147,56 @@ gives exact listen times and skips. Upload the `Streaming_History_Audio_*.json` 
 
 Importing a newer export after the tracker has been running replaces the matching live
 (estimated) plays with the real ones, so nothing is counted twice.
+
+## Now playing
+
+The Overview shows what's playing on your Spotify account: cover, title, artist and a progress
+bar. It handles paused playback, podcast episodes, ads and nothing playing. Spotify is only asked
+while an Overview tab is open and visible (every 20 seconds), never in the background.
+
+## Spotify vs you
+
+On **Insights**, compares Spotify's own top tracks and artists with what the tracker counted over
+the same periods: last 4 weeks, last 6 months and last year. For each period it lists:
+
+- **Spotify ranks high, you rarely play:** in Spotify's top 20, but 2 plays or fewer in the
+  tracker (or outside your top 50).
+- **You play a lot, Spotify doesn't list:** in your top 20, but not in Spotify's list.
+
+Each period shows how many plays the tracker counted. If your history has gaps (for example
+years before you imported or started tracking), Spotify's lists are based on listening the
+tracker never saw, so the two will disagree.
+
+## Liked vs played
+
+Also on **Insights**, compares your Liked Songs with everything the tracker has counted:
+
+- **Liked but rarely played:** liked songs with 2 plays or fewer, never-played ones first.
+- **Heavily played but not liked:** songs with 10 or more plays that aren't in your Liked Songs.
+
+Songs are matched by Spotify ID, then by ISRC, then by title and first artist, so a song Spotify
+has re-released under a new ID still counts.
+
+## Playlist Maker
+
+Makes Spotify playlists from your history:
+
+- **Top 50 of a year:** your 50 most played songs of the year you pick.
+- **Forgotten favourites:** songs you played 10+ times back then (any time before the last
+  12 months, or a year you pick) but 2 times or fewer in the last 12 months.
+- **Peak obsessions:** the 50 songs you played the most in a single day.
+
+Pick one and press **Preview** to see the list. Nothing changes on Spotify until you press
+**Create** (or **Update**). Running the same list again updates its playlist instead of making a
+duplicate; if you've removed it from your library, a new one is made.
+
+Songs Spotify won't play in your region are skipped and listed as "unavailable in your region",
+and the next songs fill their places so the playlist still has 50. Checking takes a few seconds
+the first time; the page updates itself while it checks.
+
+**Privacy:** playlists are created with "public" off, so they don't appear on your profile. The
+Spotify app still labels them "Public Playlist", so anyone with the link can open them; the API
+can't change that. To make one fully private, open it in Spotify and choose **Make private**.
 
 ## Playlist names and covers
 
