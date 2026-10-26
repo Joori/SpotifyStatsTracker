@@ -1130,6 +1130,7 @@ class SpotifyDashboardApp:
                 "login.html",
                 configured=self.spotify.isConfigured(),
                 needsRelog=self.spotify.needsRelog(),
+                needsNewScopes=bool(self.spotify.cachedMissingScopes()),
                 redirectUri=self.spotify.redirectUri,
                 nextPath=self._safeNextPath(request.args.get("next")) or "",
                 error=error,

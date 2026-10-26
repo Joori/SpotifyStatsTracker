@@ -3,7 +3,9 @@
 
 <header class="page-header">
   <h1>{% if needsRelog %}Relog to Spotify{% else %}Connect to Spotify{% endif %}</h1>
-  {% if needsRelog %}
+  {% if needsNewScopes %}
+    <p>The tracker needs some new Spotify permissions. Your listening history is safe; log in again to grant them and keep tracking.</p>
+  {% elif needsRelog %}
     <p>Your Spotify login has expired (Spotify ends logins after about 6 months). Your listening history is safe; log in again to keep tracking.</p>
   {% else %}
     <p>Log in with Spotify so the tracker can read your recently played tracks.</p>
@@ -20,7 +22,7 @@
       <input type="hidden" name="next" value="{{ nextPath }}">
       <button type="submit" class="btn-primary">{% if needsRelog %}Relog to Spotify{% else %}Connect to Spotify{% endif %}</button>
     </form>
-    <p class="muted">Permissions requested: recently played tracks, private playlists (names only).</p>
+    <p class="muted">Permissions requested: recently played tracks, what's playing now, your Spotify top artists and tracks, liked songs, private playlists (read names, and create/update playlists the tracker makes for you).</p>
   {% else %}
     <section class="instructions">
       <h3>Spotify isn't configured yet</h3>

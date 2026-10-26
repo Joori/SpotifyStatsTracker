@@ -18,7 +18,14 @@ from spotipy.cache_handler import CacheFileHandler
 from spotipy.exceptions import SpotifyException, SpotifyOauthError
 from spotipy.oauth2 import SpotifyOAuth
 
-SCOPES = "user-read-recently-played playlist-read-private"
+SCOPES = " ".join([
+    "user-read-recently-played",
+    "playlist-read-private",
+    "user-read-currently-playing",
+    "user-top-read",
+    "user-library-read",
+    "playlist-modify-private",
+])
 DEFAULT_MAX_RETRY_WAIT = 300      #< seconds; longer Retry-After values fail fast instead of waiting
 DEFAULT_RETRY_AFTER = 5           #< used when Spotify sends a 429 without a Retry-After header
 MAX_CONSECUTIVE_429 = 5
@@ -97,13 +104,33 @@ class SpotifyApi:
     def isConfigured(self):
         return bool(self.clientId and self.clientSecret and self.redirectUri)
 
+    @staticmethod
+    def missingScopes(grantedScopes):
+        granted = set((grantedScopes or "").split())
+        return [s for s in SCOPES.split() if s not in granted]
+
+    def _checkCachedScopes(self, info):
+        """ A stored token without every required scope needs a relog (e.g. after new scopes are added). """
+        if info and self.missingScopes(info.get("scope")):
+            self.authProblem = "expired"
+            return False
+        return True
+
     def isConnected(self):
         """ Cheap check, no network: is there a token we expect to work? """
         if not self.isConfigured() or self.authProblem == "expired":
             return False
-        return self.cacheHandler.get_cached_token() is not None
+        info = self.cacheHandler.get_cached_token()
+        return info is not None and self._checkCachedScopes(info)
+
+    def cachedMissingScopes(self):
+        """ Required scopes the stored token lacks ([] when there is no token). """
+        info = self.cacheHandler.get_cached_token()
+        return self.missingScopes(info.get("scope")) if info else []
 
     def needsRelog(self):
+        if self.authProblem != "expired" and self.isConfigured():
+            self._checkCachedScopes(self.cacheHandler.get_cached_token())
         return self.authProblem == "expired"
 
     def getAuthorizeUrl(self, state):
@@ -128,8 +155,7 @@ class SpotifyApi:
             if not info or not info.get("access_token"):
                 self.authProblem = "notConnected"
                 raise SpotifyAuthError("notConnected")
-            if not self.oauth._is_scope_subset(SCOPES, info.get("scope", "")):
-                self.authProblem = "expired"   #< scopes changed; user has to grant them again
+            if not self._checkCachedScopes(info):   #< scopes changed; user has to grant them again
                 raise SpotifyAuthError("expired", "Token is missing required scopes")
             if self.oauth.is_token_expired(info):
                 try:

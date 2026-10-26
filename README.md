@@ -25,6 +25,16 @@ so it stays within Spotify's Developer Terms. That changes the requirements:
        SPOTIFY_REDIRECT_URI=https://tracker.example.com/callback
 4. `docker compose up -d --build`, open the site, click **Connect to Spotify**.
 
+The tracker asks for these permissions (scopes): `user-read-recently-played`, `playlist-read-private`,
+`user-read-currently-playing`, `user-top-read`, `user-library-read` and `playlist-modify-private`.
+If an update adds a scope, the site shows **Relog to Spotify** until you log in again; live tracking
+pauses until then.
+
+To check which endpoints and fields your app can use, run `python tools/probeSpotifyApi.py`
+(inside the container: `docker compose exec spotify-tracker python tools/probeSpotifyApi.py`).
+It prints status codes and field names only. `--write` also creates one private test playlist,
+"SST probe (delete me)", which you delete by hand.
+
 Optional env: `SPOTIFY_POLL_INTERVAL` (default 120s), `SPOTIFY_MAX_RETRY_WAIT` (default 300s),
 `FLASK_DEBUG=1` (only when debugging; off by default).
 

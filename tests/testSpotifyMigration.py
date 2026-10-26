@@ -14,7 +14,7 @@ from spotipy.exceptions import SpotifyException, SpotifyOauthError
 
 from Database.database import Database
 from Database import analytics, playMatching
-from Database.spotifyApi import SpotifyApi, RateLimitedError, SpotifyAuthError
+from Database.spotifyApi import SpotifyApi, RateLimitedError, SpotifyAuthError, SCOPES
 from Database.utils import timeToInt
 
 DURATION_MS = 200_000          #< 3m20s
@@ -401,7 +401,7 @@ class RelogTests(unittest.TestCase):
     def testInvalidGrantAsksForRelogInsteadOfCrashing(self):
         self.api.cacheHandler.save_token_to_cache({
             "access_token": "old", "refresh_token": "dead", "expires_at": 0,
-            "scope": "user-read-recently-played playlist-read-private",
+            "scope": SCOPES,
         })
         self.assertTrue(self.api.isConnected())
         self.api.oauth.refresh_access_token = MagicMock(
@@ -411,6 +411,29 @@ class RelogTests(unittest.TestCase):
 
         self.assertTrue(self.api.needsRelog())
         self.assertFalse(self.api.isConnected())
+
+    def testTokenMissingNewScopesAsksForRelogWithoutNetwork(self):
+        self.api.cacheHandler.save_token_to_cache({
+            "access_token": "ok", "refresh_token": "ok", "expires_at": time.time() + 3600,
+            "scope": "user-read-recently-played playlist-read-private",
+        })
+        self.api.oauth.refresh_access_token = MagicMock()
+
+        self.assertIn("user-top-read", self.api.cachedMissingScopes())
+        self.assertFalse(self.api.isConnected())
+        self.assertTrue(self.api.needsRelog())
+        with self.assertRaises(SpotifyAuthError):
+            self.api.accessToken()
+        self.api.oauth.refresh_access_token.assert_not_called()
+
+    def testScopeOrderDoesNotMatter(self):
+        self.api.cacheHandler.save_token_to_cache({
+            "access_token": "ok", "refresh_token": "ok", "expires_at": time.time() + 3600,
+            "scope": " ".join(reversed(SCOPES.split())),
+        })
+        self.assertTrue(self.api.isConnected())
+        self.assertFalse(self.api.needsRelog())
+        self.assertEqual(self.api.accessToken(), "ok")
 
 
 class SummaryApiTests(unittest.TestCase):
@@ -602,10 +625,21 @@ class LoginPageTests(unittest.TestCase):
         self.assertIn("Relog to Spotify", html)
         self.assertIn('action="/login/start"', html)
 
+    def testMissingScopesShowNewPermissionsPrompt(self):
+        self.dashboard.spotify.cacheHandler.save_token_to_cache({
+            "access_token": "ok", "refresh_token": "ok", "expires_at": time.time() + 3600,
+            "scope": "user-read-recently-played playlist-read-private",
+        })
+        html = self.client.get("/login").get_data(as_text=True)
+        self.assertIn("Relog to Spotify", html)
+        self.assertIn("new Spotify permissions", html)
+
     def testStartRedirectsToSpotifyWithState(self):
         response = self.client.post("/login/start", data={"next": "/history"})
         self.assertEqual(response.status_code, 302)
         self.assertIn("accounts.spotify.com/authorize", response.location)
+        for scope in SCOPES.split():
+            self.assertIn(scope, response.location)
         self.assertEqual(len(self.dashboard.pendingOAuthStates), 1)
 
     def testCallbackRejectsUnknownState(self):
