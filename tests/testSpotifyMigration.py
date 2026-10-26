@@ -532,6 +532,34 @@ class SummaryApiTests(unittest.TestCase):
         self.assertIn("js/now-playing.js", html)
 
 
+    def testInsightsShowsSpotifyVsYou(self):
+        from Database.spotifyTop import SpotifyTopStore
+        self.dashboard.username = "test"
+        store = SpotifyTopStore(self.db.spotify, Path(self.tmp.name))
+        store.cache.save({
+            "tracks": {r: [{"id": "spotifyOnly", "name": "Spotify Darling", "artists": [{"id": "x", "name": "X"}],
+                            "isrc": None, "imageUrl": "https://i.scdn.co/c", "url": "https://open.spotify.com/track/s"}]
+                       for r in ("short_term", "medium_term", "long_term")},
+            "artists": {r: [] for r in ("short_term", "medium_term", "long_term")},
+        })
+        self.dashboard.spotifyTop = store
+        html = self.client.get("/insights").get_data(as_text=True)
+        self.assertIn('id="spotify-vs-you"', html)
+        self.assertIn("Spotify Darling", html)
+        self.assertIn("no plays here", html)
+        self.assertIn("Song A", html)   #< your most played, not in Spotify's list
+        self.assertIn("Spotify returned no top artists", html)
+        self.assertIn("The tracker counted 4 plays in the last year", html)
+
+    def testInsightsSurvivesSpotifyVsYouFailure(self):
+        self.dashboard.username = "test"
+        self.dashboard.spotifyTop = MagicMock()
+        self.dashboard.spotifyTop.comparison.side_effect = RuntimeError("boom")
+        response = self.client.get("/insights")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Couldn't get your top lists", response.get_data(as_text=True))
+
+
 class PlaylistOverrideTests(unittest.TestCase):
     MIX = "37i9dQZF1EIebRCzNzc6XZ"
 

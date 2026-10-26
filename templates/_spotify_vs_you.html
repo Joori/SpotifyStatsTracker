@@ -1,0 +1,118 @@
+{# Spotify vs you: Spotify's top lists compared with the tracker's own plays. Expects spotifyVsYou, username. #}
+{% from "_show_more.html" import controls as show_more_controls %}
+{% macro entity_row(row, kind, hide=False) -%}
+{% set localHref = ('/song/' ~ row.localId) if kind == 'tracks' and row.localId and row.plays
+   else (('/artist/' ~ row.localId) if kind == 'artists' and row.localId and row.plays else None) %}
+{% set href = localHref or row.url %}
+<a class="insight-entity" {% if href %}href="{{ href }}"{% endif %}{% if not localHref and row.url %} target="_blank" rel="noopener noreferrer"{% endif %} data-show-more-item{% if hide %} hidden{% endif %}>
+  {% if row.imageId %}
+  <img loading="lazy" src="/img/{{ username }}/tracks/{{ row.imageId }}.jpeg" alt="" onerror="this.style.display='none'" />
+  {% elif row.imageUrl %}
+  <img loading="lazy" src="{{ row.imageUrl }}" alt="" onerror="this.style.display='none'" />
+  {% endif %}
+  <div>
+    <strong>{{ row.name }}</strong>
+    {% if row.subtitle %}<span>{{ row.subtitle }}</span>{% endif %}
+    {% if row.spotifyRank %}
+    <span>Spotify #{{ row.spotifyRank }} · {% if row.plays %}{{ row.plays }} play{{ '' if row.plays == 1 else 's' }} here{% if row.localRank %} (your #{{ row.localRank }}){% endif %}{% else %}no plays here{% endif %}</span>
+    {% else %}
+    <span>Your #{{ row.localRank }} · {{ row.plays }} plays · not in Spotify's list</span>
+    {% endif %}
+  </div>
+</a>
+{%- endmacro %}
+
+{% macro comparison_lists(cmp, kind, noun) -%}
+<p class="insights-note">
+  {% if cmp.compared %}{{ cmp.agree }} of Spotify's top {{ cmp.compared }} {{ noun }} are in your top 50 here.{% endif %}
+</p>
+<div class="insights-split">
+  <div>
+    <h4>Spotify ranks high, you rarely play</h4>
+    {% if cmp.spotifyHigh %}
+    <div data-show-more data-initial="5" data-step="5">
+      <div class="peak-obsession-list">
+        {% for row in cmp.spotifyHigh %}{{ entity_row(row, kind, loop.index > 5) }}{% endfor %}
+      </div>
+      {{ show_more_controls(cmp.spotifyHigh|length, 5) }}
+    </div>
+    {% else %}
+    <p class="loading">Nothing: you play everything in Spotify's top {{ cmp.compared or 20 }}.</p>
+    {% endif %}
+  </div>
+  <div>
+    <h4>You play a lot, Spotify doesn't list</h4>
+    {% if cmp.youHigh %}
+    <div data-show-more data-initial="5" data-step="5">
+      <div class="peak-obsession-list">
+        {% for row in cmp.youHigh %}{{ entity_row(row, kind, loop.index > 5) }}{% endfor %}
+      </div>
+      {{ show_more_controls(cmp.youHigh|length, 5) }}
+    </div>
+    {% else %}
+    <p class="loading">Nothing: Spotify lists all of your top 20.</p>
+    {% endif %}
+  </div>
+</div>
+{%- endmacro %}
+
+<section class="insights-section" id="spotify-vs-you">
+  <header class="insights-section-header">
+    <h2>Spotify vs you</h2>
+    <p>Spotify's own top lists for you, next to what the tracker counted over the same period.</p>
+  </header>
+  {% if not spotifyVsYou or not spotifyVsYou.ready %}
+    {% if spotifyVsYou and spotifyVsYou.error %}
+    <p class="loading">Couldn't get your top lists from Spotify yet ({{ spotifyVsYou.error }}). It'll try again shortly.</p>
+    {% else %}
+    <p class="loading">Getting your top lists from Spotify. Reload in a moment.</p>
+    {% endif %}
+  {% else %}
+  <div class="pattern-metric-toggle" role="group" aria-label="Spotify time range" data-svy-tabs>
+    {% for window in spotifyVsYou.windows %}
+    <button type="button" class="pattern-toggle{% if loop.first %} is-active{% endif %}" data-svy-tab="{{ window.key }}" aria-pressed="{{ 'true' if loop.first else 'false' }}">{{ window.label }}</button>
+    {% endfor %}
+  </div>
+  {% for window in spotifyVsYou.windows %}
+  <div class="svy-window" data-svy-panel="{{ window.key }}"{% if not loop.first %} hidden{% endif %}>
+    {% if not window.localPlays %}
+    <p class="loading">The tracker has no plays from the {{ window.label|lower }}, so there's nothing to compare.</p>
+    {% else %}
+    <p class="insights-note">The tracker counted {{ "{:,}".format(window.localPlays) }} plays in the {{ window.label|lower }}. Gaps in your history make this comparison less reliable.</p>
+    <h3>Tracks</h3>
+    {% if window.tracks.spotifyCount %}
+    {{ comparison_lists(window.tracks, 'tracks', 'tracks') }}
+    {% else %}
+    <p class="loading">Spotify returned no top tracks for this period.</p>
+    {% endif %}
+    <div class="insights-subblock">
+      <h3>Artists</h3>
+      {% if window.artists.spotifyCount %}
+      {{ comparison_lists(window.artists, 'artists', 'artists') }}
+      {% else %}
+      <p class="loading">Spotify returned no top artists for this period.</p>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+  <p class="insights-note">Spotify's lists are refreshed every few hours. "Rarely" means 2 plays or fewer, or outside your top 50, for that period.</p>
+  <script>
+    (function () {
+      const root = document.getElementById('spotify-vs-you');
+      root.querySelectorAll('[data-svy-tab]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          root.querySelectorAll('[data-svy-tab]').forEach((b) => {
+            const on = b === btn;
+            b.classList.toggle('is-active', on);
+            b.setAttribute('aria-pressed', on ? 'true' : 'false');
+          });
+          root.querySelectorAll('[data-svy-panel]').forEach((panel) => {
+            panel.hidden = panel.dataset.svyPanel !== btn.dataset.svyTab;
+          });
+        });
+      });
+    })();
+  </script>
+  {% endif %}
+</section>

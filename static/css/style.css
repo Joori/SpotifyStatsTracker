@@ -2498,3 +2498,19 @@ a.track-label {
   font-size: 0.75rem;
   color: var(--muted);
 }
+
+/* Spotify vs you (Insights) */
+.svy-window {
+  margin-top: 14px;
+}
+
+.svy-window[hidden] {
+  display: none;
+}
+
+.svy-window h4 {
+  margin: 0 0 10px;
+  font-size: 0.9rem;
+  color: var(--muted);
+  font-weight: 600;
+}

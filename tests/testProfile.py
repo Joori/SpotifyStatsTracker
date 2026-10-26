@@ -1,6 +1,7 @@
 import os
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from io import BytesIO
@@ -79,8 +80,12 @@ class ProfileTests(unittest.TestCase):
     def testFreshCacheMakesNoCallsAndStaleCacheRefreshesInBackground(self):
         api = FakeApi(ME)
         store = ProfileStore(api, self.folder)
+        release = threading.Event()
+        realCall = api.call
+        api.call = lambda fn, maxWait=0, onWait=None: (release.wait(5), realCall(fn, maxWait))[1]
         with patch.object(profileModule.requests, "get", side_effect=fakeDownload):
-            self.assertEqual(store.get(), {})   #< nothing cached yet: page renders without it
+            self.assertEqual(store.get(), {})   #< nothing cached yet: page renders without waiting for Spotify
+            release.set()
             store.refresher.thread.join(5)
             self.assertEqual(store.get()["displayName"], "Joori")
             self.assertEqual(api.calls, 1)      #< fresh now: no more calls

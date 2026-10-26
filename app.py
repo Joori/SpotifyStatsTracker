@@ -16,6 +16,7 @@ from Database.utils import msToString, convertToDatetime, formatDuration, dateTo
 from Database.spotifyApi import SpotifyApi
 from Database.profile import ProfileStore
 from Database.nowPlaying import NowPlaying
+from Database.spotifyTop import SpotifyTopStore
 from spotipy.exceptions import SpotifyOauthError
 
 EXPLORE_TABS = (
@@ -37,6 +38,7 @@ class SpotifyDashboardApp:
         self.userFolder = self.baseDir / "Database" / "Users" / self.username
         self.profile = ProfileStore(self.spotify, self.userFolder)
         self.nowPlaying = NowPlaying(self.spotify)
+        self.spotifyTop = SpotifyTopStore(self.spotify, self.userFolder)
         self.database.startAutoImporter()
         self.database.resetProgress()
         try:
@@ -1075,6 +1077,16 @@ class SpotifyDashboardApp:
             "now_playing": self._nowPlayingSummary(),
         }
 
+    def _spotifyVsYou(self):
+        store = getattr(self, "spotifyTop", None)
+        if store is None:
+            return None
+        try:
+            return store.comparison(self.database)
+        except Exception as e:   #< never take the Insights page down
+            print(f"Spotify vs you unavailable: {e}")
+            return {"ready": False, "error": "something went wrong"}
+
     def _nowPlayingSummary(self):
         store = getattr(self, "nowPlaying", None)
         if store is None:
@@ -1567,6 +1579,7 @@ class SpotifyDashboardApp:
             discoveryDays = self.database.getDiscoveryDays(startDate, endDate, limit=100)
             longestSessions = self.database.getLongestSessions(startDate, endDate, limit=100)
             heaviestDays = self.database.getHeaviestDays(startDate, endDate, limit=100)
+            spotifyVsYou = self._spotifyVsYou()
 
             rangeEntries = self.database.filterByInterval(self.database._loadEntries(), startDate, endDate)
             totalPlays = len(rangeEntries)
@@ -1618,6 +1631,7 @@ class SpotifyDashboardApp:
                 discoveryDays=discoveryDays,
                 longestSessions=longestSessions,
                 heaviestDays=heaviestDays,
+                spotifyVsYou=spotifyVsYou,
                 summary=summary,
                 charts=self._buildInsightCharts(timePatterns, monthlyStory),
                 section="insights",
