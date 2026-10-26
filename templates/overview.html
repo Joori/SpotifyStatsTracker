@@ -5,6 +5,20 @@
   <p>Listening totals and activity for the selected period.</p>
 </header>
 
+<section class="now-playing" id="now-playing" aria-live="polite" aria-label="Now playing on Spotify" hidden>
+  <img class="now-playing-cover" data-np="cover" alt="" width="72" height="72" hidden />
+  <div class="now-playing-body">
+    <span class="now-playing-label" data-np="label">Now playing</span>
+    <a class="now-playing-title" data-np="title" target="_blank" rel="noopener noreferrer"></a>
+    <span class="now-playing-subtitle" data-np="subtitle"></span>
+    <div class="now-playing-progress" data-np="progress" role="progressbar" aria-label="Track progress" aria-valuemin="0" aria-valuemax="100" hidden>
+      <div class="now-playing-track"><span class="now-playing-bar" data-np="bar"></span></div>
+      <div class="now-playing-times"><span data-np="elapsed"></span><span data-np="total"></span></div>
+    </div>
+  </div>
+</section>
+<script src="{{ url_for('static', filename='js/now-playing.js') }}" defer></script>
+
 <form class="filter-section dashboard-filter" method="get" action="{{ url_for('dashboard') }}"
   aria-label="Time period filter">
   <div class="filter-group">

@@ -64,6 +64,7 @@ Optional env: `SPOTIFY_POLL_INTERVAL` (default 120s), `SPOTIFY_MAX_RETRY_WAIT` (
 - Import Musicolet exports
 - Auto-import files dropped into the `autoImport` folder, with optional filtering
 - Your Spotify display name and avatar in the sidebar (refreshed daily)
+- Now playing on the Overview: cover, artist and a progress bar (only checked while the page is open)
 - A read-only JSON summary for home dashboards (see below)
 
 Screenshots are in the `assets` folder.
@@ -137,11 +138,16 @@ Without an override or a usable cover, a generic playlist icon is shown.
   "plays_week": 140, "total_plays": 27760,
   "current_streak_days": 4,
   "last_played": {"track": "Pratigi", "artist": "Vegas (Brazil)", "played_at": "2026-10-26T01:03:35+11:00"},
-  "listener": {"connected": true, "last_poll": "2026-10-26T09:14:02+11:00"}
+  "listener": {"connected": true, "last_poll": "2026-10-26T09:14:02+11:00"},
+  "now_playing": {"is_playing": true, "type": "track", "track": "Pratigi", "artist": "Vegas (Brazil)",
+                  "album": "Pratigi", "progress_ms": 61000, "duration_ms": 347000}
 }
 ```
 
 "Today" and "week" mean the last 24 hours and the last 7 days, the same ranges as the Overview page.
+`now_playing` is `null` when nothing is playing. `type` is `track`, `episode`, `ad` or `unknown`
+(ads and unknown items have no track details). It is checked when the summary is requested and
+reused for 10 seconds; `GET /api/now-playing` returns the same data in more detail.
 
 ## Running without Docker
 

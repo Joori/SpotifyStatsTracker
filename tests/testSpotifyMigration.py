@@ -496,7 +496,8 @@ class SummaryApiTests(unittest.TestCase):
             self.assertIsNotNone(datetime.datetime.fromisoformat(stamp).tzinfo, stamp)
 
         self.assertEqual(set(data), {"plays_today", "listen_seconds_today", "plays_week", "total_plays",
-                                     "current_streak_days", "last_played", "listener"})
+                                     "current_streak_days", "last_played", "listener", "now_playing"})
+        self.assertIsNone(data["now_playing"])   #< no now-playing store in this setup
         body = response.get_data(as_text=True).lower()
         for secret in ("secret", "token", "client_id", "access", "refresh"):
             self.assertNotIn(secret, body)
@@ -509,6 +510,26 @@ class SummaryApiTests(unittest.TestCase):
         self.assertEqual((data["plays_today"], data["total_plays"], data["current_streak_days"]), (0, 0, 0))
         self.assertIsNone(data["last_played"])
         self.assertEqual(data["listener"], {"connected": False, "last_poll": None})
+
+
+    def testSummaryIncludesNowPlayingWithoutSecrets(self):
+        from Database.nowPlaying import NowPlaying
+        api = FakeApi({})
+        api.call = lambda fn, maxWait=0, onWait=None: {
+            "currently_playing_type": "track", "is_playing": True, "progress_ms": 1000,
+            "item": {"name": "Song B", "duration_ms": DURATION_MS, "artists": [{"name": "Artist Two"}],
+                     "album": {"name": "Album", "images": []}}}
+        self.dashboard.nowPlaying = NowPlaying(api)
+        data = self.client.get("/api/summary").get_json()
+        self.assertEqual(data["now_playing"], {"is_playing": True, "type": "track", "track": "Song B",
+                                               "artist": "Artist Two", "album": "Album",
+                                               "progress_ms": 1000, "duration_ms": DURATION_MS})
+
+    def testOverviewHasNowPlayingCard(self):
+        self.dashboard.username = "test"
+        html = self.client.get("/").get_data(as_text=True)
+        self.assertIn('id="now-playing"', html)
+        self.assertIn("js/now-playing.js", html)
 
 
 class PlaylistOverrideTests(unittest.TestCase):

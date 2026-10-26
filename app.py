@@ -15,6 +15,7 @@ from Database.Migrators.migrate import migrateIfNeeded
 from Database.utils import msToString, convertToDatetime, formatDuration, dateToString, versionTuple, now, parseDateString
 from Database.spotifyApi import SpotifyApi
 from Database.profile import ProfileStore
+from Database.nowPlaying import NowPlaying
 from spotipy.exceptions import SpotifyOauthError
 
 EXPLORE_TABS = (
@@ -35,6 +36,7 @@ class SpotifyDashboardApp:
         self.database = Database(user=self.username, spotifyApi=self.spotify)
         self.userFolder = self.baseDir / "Database" / "Users" / self.username
         self.profile = ProfileStore(self.spotify, self.userFolder)
+        self.nowPlaying = NowPlaying(self.spotify)
         self.database.startAutoImporter()
         self.database.resetProgress()
         try:
@@ -1070,7 +1072,18 @@ class SpotifyDashboardApp:
                 "connected": bool(self.spotify.isConnected()),
                 "last_poll": lastPoll.isoformat() if lastPoll else None,
             },
+            "now_playing": self._nowPlayingSummary(),
         }
+
+    def _nowPlayingSummary(self):
+        store = getattr(self, "nowPlaying", None)
+        if store is None:
+            return None
+        try:
+            return store.summary()
+        except Exception as e:
+            print(f"Now playing unavailable for summary: {e}")
+            return None
 
     def _getIntervalLabel(self, interval: str = None, customStart: str = None, customEnd: str = None):
         labels = {
@@ -1184,6 +1197,14 @@ class SpotifyDashboardApp:
         @self.app.route("/api/summary", methods=["GET"])
         def apiSummary():
             return jsonify(self._buildSummary())
+
+        @self.app.route("/api/now-playing", methods=["GET"])
+        def apiNowPlaying():
+            store = getattr(self, "nowPlaying", None)
+            state = store.get() if store else {"available": False, "reason": "notConnected"}
+            response = jsonify(state)
+            response.headers["Cache-Control"] = "no-store"
+            return response
 
         @self.app.route("/data-version", methods=["GET"])
         def dataVersion():
