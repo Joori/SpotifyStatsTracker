@@ -1,96 +1,129 @@
-# My Fork
-UI is overhauled, with a sidebar, new insights/analytics, and better UI/UX (imo)
+# SpotifyStatsTracker (official Web API fork)
 
-Just to list a few improvements:
-- Tells you, on average, how much of a song you get through before skipping
-- Tells you your listening patterns by the hour, weekday, and month
-- Tells you the days you discovered the most new music
-- Shows you graphs of how much you listened to a song over time
-- Allows you to import multiple of your spotify History .json files at a time
-- and more! see screenshots in the `assets` folder
+Fork of [kjljixx/SpotifyStatsTracker](https://github.com/kjljixx/SpotifyStatsTracker)
+(itself a fork of [TzurSoffer/SpotifyStatsTracker](https://github.com/TzurSoffer/SpotifyStatsTracker)).
 
-# Original readme below
-# Spotify Stats Tracker
-### If you found [this repository](https://github.com/TzurSoffer/SpotifyStatsTracker) useful, please give it a ⭐!.
-A web application that allows users to track and analyze their Spotify listening habits and statistics **without Spotify Premium**.
+**This fork uses the official Spotify Web API instead of SpotipyFree / browser cookies**,
+so it stays within Spotify's Developer Terms. That changes the requirements:
+
+## Requirements
+
+- **Spotify Premium.** Spotify requires a Premium account to own a Development Mode app.
+- A Spotify Developer app (one per developer account, up to 5 authorised users).
+- An **HTTPS** redirect URI (loopback addresses like `http://127.0.0.1` are the only exception),
+  e.g. a reverse proxy in front of the tracker.
+
+## Setup
+
+1. Create an app at https://developer.spotify.com/dashboard, tick **Web API**.
+2. Add your redirect URI, e.g. `https://tracker.example.com/callback`.
+3. Create a `.env` next to `docker-compose.yml`:
+       SPOTIFY_CLIENT_ID=...
+       SPOTIFY_CLIENT_SECRET=...
+       SPOTIFY_REDIRECT_URI=https://tracker.example.com/callback
+4. `docker compose up -d --build`, open the site, click **Connect to Spotify**.
+
+Optional env: `SPOTIFY_POLL_INTERVAL` (default 120s), `SPOTIFY_MAX_RETRY_WAIT` (default 300s),
+`FLASK_DEBUG=1` (only when debugging; off by default).
+
+## Limitations of the official API
+
+- **Live plays have estimated listen time.** Recently-played doesn't report how long you listened,
+  so live plays are stored at full track length and marked *(estimated)*. They're excluded from
+  skip/completion stats. Importing a later extended-history export replaces them with the real values.
+- **Imports are rate-limited.** Importing a large history makes one request per unique track
+  and artist. Spotify can impose long (hours-long) cooldowns. The importer waits out short
+  ones and stops with a resume time for long ones; re-running continues where it left off.
+- **Re-login every ~6 months.** Spotify refresh tokens expire after six months; the app will show
+  "Relog to Spotify" when that happens.
+- **Spotify-generated playlists** (Daily Mix, On Repeat, etc.) can't be read by Development Mode apps,
+  so plays from them show the context as "Spotify mix".
 
 ## Features
 
-- View your top songs.
-- View your top artists.
-- See your listening history.
-- Track your spotify recently listened in real time
-- Import Spotify data export
-- Import musicolet pro exports
-- Automatically import files in the 'auto-import folder' with optional filtering
+- Top songs, artists, albums and playlists for any time range
+- Full listening history with search
+- Live tracking: checks your recently played every 2 minutes
+- How much of a song you get through on average before skipping
+- Listening patterns by hour, weekday and month, plus streaks and sessions
+- The days you discovered the most new music
+- Graphs of how much you listened to a song over time
+- Import your Spotify data export (account or extended history), several files at once
+- Import Musicolet exports
+- Auto-import files dropped into the `autoImport` folder, with optional filtering
+- A read-only JSON summary for home dashboards (see below)
 
-## Installation
+Screenshots are in the `assets` folder.
 
-1. Clone the repository:
+## Running with Docker
+
+The included `docker-compose.yml` builds the image from this repo. Don't use the upstream
+`mepro3/spotify-tracker` image: it still uses SpotipyFree.
+
 ```bash
-git clone https://github.com/TzurSoffer/SpotifyStatsTracker
+git clone https://github.com/Joori/SpotifyStatsTracker
 cd SpotifyStatsTracker
+# create .env as described in Setup, then:
+docker compose up -d --build
 ```
 
-2. Install dependencies:
+The app listens on port **5462**. Point your reverse proxy at it, and use the proxy's HTTPS
+address for `SPOTIFY_REDIRECT_URI`.
+
+Set `TZ` in `docker-compose.yml` to your timezone, or play times will be off.
+
+Folders on the host:
+
+| Folder | Holds |
+| --- | --- |
+| `Database/` | Your plays, track info and images |
+| `secrets/` | The Spotify login token. Keep it private |
+| `autoImport/` | Files dropped here are imported automatically. Set `IMPORT_KEYWORD` to only import files whose name contains it |
+
+To update: `git pull`, then `docker compose up -d --build`.
+
+## Importing your history
+
+Request your data at https://www.spotify.com/account/privacy. The **Extended streaming history**
+gives exact listen times and skips. Upload the `Streaming_History_Audio_*.json` (or
+`StreamingHistory*.json`) files on the **Import** page, or drop them into `autoImport/`.
+
+Importing a newer export after the tracker has been running replaces the matching live
+(estimated) plays with the real ones, so nothing is counted twice.
+
+## Dashboard API
+
+`GET /api/summary` returns a small read-only JSON summary, e.g. for a
+[Homepage](https://gethomepage.dev) `customapi` widget. It contains no tokens or credentials.
+
+```json
+{
+  "plays_today": 12, "listen_seconds_today": 2710,
+  "plays_week": 140, "total_plays": 27760,
+  "current_streak_days": 4,
+  "last_played": {"track": "Pratigi", "artist": "Vegas (Brazil)", "played_at": "2026-10-26T01:03:35+11:00"},
+  "listener": {"connected": true, "last_poll": "2026-10-26T09:14:02+11:00"}
+}
+```
+
+"Today" and "week" mean the last 24 hours and the last 7 days, the same ranges as the Overview page.
+
+## Running without Docker
+
 ```bash
 pip install -r requirements.txt
-```
-
-## Run the Application
-
-### Using Docker
-
-Use this docker-compose file:
-```docker
-version: '3.8'
-
-services:
-  spotify-tracker:
-    image: mepro3/spotify-tracker
-    ports:
-      - "5000:5000"
-    volumes:
-      - ./Database:/app/Database/Users
-      - ./secrets:/app/secrets
-      - ./autoImport:/app/autoImport  #< files put in this folder will be imported automatically
-    environment:
-      - FLASK_APP=app.py
-      - PYTHONUNBUFFERED=1
-      - TZ=America/Los_Angeles        #< don't forget to change this or you will get the wrong times for songs
-      # - IMPORT_KEYWORD=Weekly       #< Uncomment to apply a filter to what files get auto-imported (only files containing this will be imported)
-      # - FLASK_DEBUG=1               #< To get more detailed logs from Flask (provide this when opening an issue)
-    restart: always
-```
-
-### Then you can run `docker compose up -d` and the app should start on `http://127.0.0.1:5000` or `http://yourIp:5000`
-
-### To update the container if an update is available, run `docker compose pull`
-
-### Local Development
-
-1. Start the app:
-```bash
+export SPOTIFY_CLIENT_ID=... SPOTIFY_CLIENT_SECRET=...
+export SPOTIFY_REDIRECT_URI=http://127.0.0.1:5462/callback   # loopback, so plain HTTP is allowed
 python app.py
 ```
 
-2. Open the app in your browser:
-```text
-http://127.0.0.1:5000
-```
-or whatever your IP is
-
-3. Open the app in your browser:
-```text
-http://127.0.0.1:5000
-```
-
-**Note:** The Docker container persists data in the `Database/` directory on your host machine.
+Then open http://127.0.0.1:5462. Add the same redirect URI to your Spotify app.
 
 ## License
 
-This project is licensed under the `Soffer Non-Commercial Source-Available License 1.1` - see the LICENSE file for details.
+This project is licensed under the `Soffer Non-Commercial Source-Available License 1.1`. See the LICENCE file for details.
 
 ## Support
 
-For support, please open an issue on the GitHub repository or contact me.
+For problems with this fork, open an issue at https://github.com/Joori/SpotifyStatsTracker/issues.
+When reporting a bug, restart with `FLASK_DEBUG=1` and include the logs.
