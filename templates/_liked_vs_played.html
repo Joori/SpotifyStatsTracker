@@ -1,0 +1,64 @@
+{# Liked vs played. Expects likedVsPlayed, username. #}
+{% from "_show_more.html" import controls as show_more_controls %}
+{% macro liked_row(row, hide=False) -%}
+{% set localHref = ('/song/' ~ row.localId) if row.localId else None %}
+{% set href = localHref or row.url %}
+<a class="insight-entity" {% if href %}href="{{ href }}"{% endif %}{% if not localHref and row.url %} target="_blank" rel="noopener noreferrer"{% endif %} data-show-more-item{% if hide %} hidden{% endif %}>
+  {% if row.imageId %}
+  <img loading="lazy" src="/img/{{ username }}/tracks/{{ row.imageId }}.jpeg" alt="" onerror="this.style.display='none'" />
+  {% elif row.imageUrl %}
+  <img loading="lazy" src="{{ row.imageUrl }}" alt="" onerror="this.style.display='none'" />
+  {% endif %}
+  <div>
+    <strong>{{ row.name }}</strong>
+    {% if row.subtitle %}<span>{{ row.subtitle }}</span>{% endif %}
+    <span>{% if row.plays %}{{ row.plays }} play{{ '' if row.plays == 1 else 's' }}{% else %}Never played{% endif %}{% if row.addedAt %} · liked {{ row.addedAt[:10] }}{% endif %}</span>
+  </div>
+</a>
+{%- endmacro %}
+
+<section class="insights-section" id="liked-vs-played">
+  <header class="insights-section-header">
+    <h2>Liked vs played</h2>
+    <p>Your Liked Songs on Spotify against what you actually play, all time.</p>
+  </header>
+  {% if not likedVsPlayed or not likedVsPlayed.ready %}
+    {% if likedVsPlayed and likedVsPlayed.error %}
+    <p class="loading">Couldn't sync your liked songs from Spotify yet ({{ likedVsPlayed.error }}). It'll try again shortly.</p>
+    {% else %}
+    <p class="loading">Syncing your liked songs from Spotify. Reload in a minute.</p>
+    {% endif %}
+  {% else %}
+  <p class="insights-note">{{ "{:,}".format(likedVsPlayed.likedTotal) }} liked songs, synced daily.</p>
+  <div class="insights-split">
+    <div>
+      <h3>Liked but rarely played</h3>
+      {% if likedVsPlayed.likedRarely %}
+      <p class="insights-note">{{ likedVsPlayed.likedNeverCount }} never played, {{ likedVsPlayed.likedRarelyCount - likedVsPlayed.likedNeverCount }} played once or twice.</p>
+      <div data-show-more data-initial="{{ list_preview }}" data-step="{{ list_preview }}">
+        <div class="peak-obsession-list">
+          {% for row in likedVsPlayed.likedRarely %}{{ liked_row(row, loop.index > list_preview) }}{% endfor %}
+        </div>
+        {{ show_more_controls(likedVsPlayed.likedRarely|length, list_preview) }}
+      </div>
+      {% else %}
+      <p class="loading">You've played every liked song at least 3 times.</p>
+      {% endif %}
+    </div>
+    <div>
+      <h3>Heavily played but not liked</h3>
+      {% if likedVsPlayed.playedNotLiked %}
+      <p class="insights-note">10 or more plays, not in your Liked Songs.</p>
+      <div data-show-more data-initial="{{ list_preview }}" data-step="{{ list_preview }}">
+        <div class="peak-obsession-list">
+          {% for row in likedVsPlayed.playedNotLiked %}{{ liked_row(row, loop.index > list_preview) }}{% endfor %}
+        </div>
+        {{ show_more_controls(likedVsPlayed.playedNotLiked|length, list_preview) }}
+      </div>
+      {% else %}
+      <p class="loading">Everything you play 10 or more times is liked.</p>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+</section>

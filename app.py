@@ -17,6 +17,7 @@ from Database.spotifyApi import SpotifyApi
 from Database.profile import ProfileStore
 from Database.nowPlaying import NowPlaying
 from Database.spotifyTop import SpotifyTopStore
+from Database.likedSongs import LikedStore
 from spotipy.exceptions import SpotifyOauthError
 
 EXPLORE_TABS = (
@@ -39,6 +40,7 @@ class SpotifyDashboardApp:
         self.profile = ProfileStore(self.spotify, self.userFolder)
         self.nowPlaying = NowPlaying(self.spotify)
         self.spotifyTop = SpotifyTopStore(self.spotify, self.userFolder)
+        self.likedSongs = LikedStore(self.spotify, self.userFolder)
         self.database.startAutoImporter()
         self.database.resetProgress()
         try:
@@ -1087,6 +1089,16 @@ class SpotifyDashboardApp:
             print(f"Spotify vs you unavailable: {e}")
             return {"ready": False, "error": "something went wrong"}
 
+    def _likedVsPlayed(self):
+        store = getattr(self, "likedSongs", None)
+        if store is None:
+            return None
+        try:
+            return store.comparison(self.database)
+        except Exception as e:   #< never take the Insights page down
+            print(f"Liked vs played unavailable: {e}")
+            return {"ready": False, "error": "something went wrong"}
+
     def _nowPlayingSummary(self):
         store = getattr(self, "nowPlaying", None)
         if store is None:
@@ -1580,6 +1592,7 @@ class SpotifyDashboardApp:
             longestSessions = self.database.getLongestSessions(startDate, endDate, limit=100)
             heaviestDays = self.database.getHeaviestDays(startDate, endDate, limit=100)
             spotifyVsYou = self._spotifyVsYou()
+            likedVsPlayed = self._likedVsPlayed()
 
             rangeEntries = self.database.filterByInterval(self.database._loadEntries(), startDate, endDate)
             totalPlays = len(rangeEntries)
@@ -1632,6 +1645,7 @@ class SpotifyDashboardApp:
                 longestSessions=longestSessions,
                 heaviestDays=heaviestDays,
                 spotifyVsYou=spotifyVsYou,
+                likedVsPlayed=likedVsPlayed,
                 summary=summary,
                 charts=self._buildInsightCharts(timePatterns, monthlyStory),
                 section="insights",

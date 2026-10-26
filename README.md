@@ -66,6 +66,7 @@ Optional env: `SPOTIFY_POLL_INTERVAL` (default 120s), `SPOTIFY_MAX_RETRY_WAIT` (
 - Your Spotify display name and avatar in the sidebar (refreshed daily)
 - Now playing on the Overview: cover, artist and a progress bar (only checked while the page is open)
 - Spotify vs you: Spotify's own top artists and tracks (4 weeks, 6 months, 1 year) next to the tracker's counts, highlighting what Spotify ranks high but you rarely play, and the reverse
+- Liked vs played: liked songs you never or rarely play, and songs you play a lot but haven't liked (liked songs sync daily)
 - A read-only JSON summary for home dashboards (see below)
 
 Screenshots are in the `assets` folder.

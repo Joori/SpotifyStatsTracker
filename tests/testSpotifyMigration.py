@@ -551,6 +551,24 @@ class SummaryApiTests(unittest.TestCase):
         self.assertIn("Spotify returned no top artists", html)
         self.assertIn("The tracker counted 4 plays in the last year", html)
 
+    def testInsightsShowsLikedVsPlayed(self):
+        from Database.likedSongs import LikedStore
+        self.dashboard.username = "test"
+        store = LikedStore(self.db.spotify, Path(self.tmp.name))
+        store.cache.save({"tracks": [
+            {"id": "trackB", "name": "Song B", "isrc": None, "artists": [{"id": "artist-1", "name": "Artist Two"}],
+             "imageUrl": None, "url": None, "addedAt": "2026-01-02T00:00:00Z"},
+            {"id": "neverHere", "name": "Liked Ghost", "isrc": None, "artists": [{"id": "z", "name": "Z"}],
+             "imageUrl": "https://i.scdn.co/g", "url": "https://open.spotify.com/track/g", "addedAt": "2026-03-04T00:00:00Z"},
+        ], "total": 2})
+        self.dashboard.likedSongs = store
+        html = self.client.get("/insights").get_data(as_text=True)
+        self.assertIn('id="liked-vs-played"', html)
+        self.assertIn("Liked Ghost", html)
+        self.assertIn("Never played · liked 2026-03-04", html)
+        self.assertIn("1 play · liked 2026-01-02", html)
+        self.assertIn("Everything you play 10 or more times is liked.", html)
+
     def testInsightsSurvivesSpotifyVsYouFailure(self):
         self.dashboard.username = "test"
         self.dashboard.spotifyTop = MagicMock()
