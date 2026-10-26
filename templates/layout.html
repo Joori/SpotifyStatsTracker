@@ -107,6 +107,42 @@
       };
 
       (function(){
+        // Reload when the listener (or an import) saves new plays. Waits while the tab is hidden
+        // or a form field has focus, so it never interrupts typing.
+        const loadedVersion = {{ dataVersion|tojson }};
+        if (!loadedVersion) {
+          return;
+        }
+        let changed = false;
+
+        function busy(){
+          const el = document.activeElement;
+          return !!el && (el.matches('input, textarea, select') || el.isContentEditable);
+        }
+        function reloadIfChanged(){
+          if (changed && !document.hidden && !busy()) {
+            window.location.reload();
+          }
+        }
+        function checkData(){
+          if (changed) {
+            reloadIfChanged();
+            return;
+          }
+          fetch('/data-version', {cache: 'no-store'}).then(r => r.ok ? r.json() : null).then(data => {
+            if (data && data.version && data.version !== loadedVersion) {
+              changed = true;
+              reloadIfChanged();
+            }
+          }).catch(() => {});
+        }
+
+        setInterval(checkData, 30 * 1000);
+        document.addEventListener('visibilitychange', () => { if (!document.hidden) checkData(); });
+        document.addEventListener('focusout', () => setTimeout(reloadIfChanged, 0));
+      })();
+
+      (function(){
         const badge = document.getElementById('version-badge');
         const textEl = document.getElementById('version-badge-text');
 

@@ -1115,6 +1115,16 @@ class SpotifyDashboardApp:
         def spotifyStatus():
             return jsonify(self.spotify.status())
 
+        @self.app.route("/data-version", methods=["GET"])
+        def dataVersion():
+            return jsonify({"version": getattr(self.database, "dataVersion", None)})
+
+        @self.app.context_processor
+        def injectDataVersion():
+            # Pages that show plays refresh themselves when new plays are saved (not import/login pages)
+            liveRefresh = request.endpoint not in ("importPage", "login", "loginStart", "oauthCallback")
+            return {"dataVersion": getattr(self.database, "dataVersion", None) if liveRefresh else None}
+
         @self.app.route("/import-progress", methods=["GET"])
         def importProgress():
             return jsonify(self.database.readProgress())

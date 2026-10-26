@@ -3,6 +3,7 @@ import copy
 import os
 import threading
 import json
+import time
 from pathlib import Path
 from io import BytesIO
 
@@ -28,6 +29,10 @@ except ModuleNotFoundError:
     import analytics as analyticsLib
     import playMatching
 
+SPOTIFY_MIX_PREFIX = "37i9dQZF"    #< Spotify-made playlists (mixes, Daily Mix, editorial): the Web API returns 404 for these
+SPOTIFY_MIX_NAME = "Spotify mix"
+
+
 class Database:
     def __init__(self,
                  user: str = "Tzur",
@@ -52,6 +57,8 @@ class Database:
         self.entriesCache = None
         self.tracksCache = None
         self.playlistsCache = None
+        self._dataVersionBase = time.time_ns()   #< a restart counts as a change, so open pages reload once
+        self._dataVersionCount = 0
 
         filterKeyword = os.environ.get("IMPORT_KEYWORD", None)
         print(f"auto import filtering by {filterKeyword}")
@@ -111,6 +118,7 @@ class Database:
                 "key": playMatching.songKey(formatted),
                 "raw": raw,
                 "context": item.get("context"),
+                "endedAt": item.get("played_at"),
             })
         if not candidates:
             return
@@ -123,9 +131,12 @@ class Database:
         for candidate in sorted(fresh, key=lambda c: c["playedAt"]):
             meta = Client.formatTrack(candidate["raw"], candidate["playedAt"], candidate["duration"], context=candidate["context"])
             meta["estimated"] = True
+            artists = ", ".join(a.get("name", "") for a in candidate["raw"].get("artists") or meta.get("artists") or [])
+            name = meta.get("name")
             self.appendMetadata(meta)
+            print(f"Listener recorded: {name} - {artists} (played_at {candidate['endedAt']})")
         if fresh:
-            print(f"Listener recorded {len(fresh)} new play(s)")
+            print(f"Listener recorded {len(fresh)} new play(s), {len(candidates) - len(fresh)} already stored")
 
     def _loadEntries(self) -> list:
         """Load ONLY id and info about time played from the JSON file."""
@@ -137,6 +148,12 @@ class Database:
         """Save ONLY id and info about time played to the JSON file."""
         self.entriesCache = entries
         self._save(self.entriesPath, entries)
+        self._dataVersionCount += 1
+
+    @property
+    def dataVersion(self) -> str:
+        """ Changes whenever plays are saved; open pages poll it to know when to refresh. """
+        return f"{self._dataVersionBase}-{self._dataVersionCount}"
 
     def _saveTracks(self, tracks: dict):
         """Save full track metadata to the JSON file."""
@@ -256,8 +273,13 @@ class Database:
                 print(f"Skipping name lookup for {playlist} for now: {e}")   #< retried on the next play from it
                 return
             except Exception as e:
-                print(f"Error occurred while fetching playlist name for {playlistId} (probably due to playlist being private): {e}")
-                existingPlaylists[contextType][playlistId] = None
+                # Cached either way, so it isn't looked up again
+                if playlistId.startswith(SPOTIFY_MIX_PREFIX):
+                    print(f"Name lookup for {playlist} failed ({parseError(e)}); Spotify-made playlist, saved as '{SPOTIFY_MIX_NAME}'")
+                    existingPlaylists[contextType][playlistId] = SPOTIFY_MIX_NAME
+                else:
+                    print(f"Error occurred while fetching playlist name for {playlistId} (probably due to playlist being private): {e}")
+                    existingPlaylists[contextType][playlistId] = None
             self._savePlaylists(existingPlaylists)
 
     def getHistory(self) -> int:
@@ -309,7 +331,10 @@ class Database:
             return None
         type, playlistId = playlistUri.split(":", 1)
         playlists = self._loadPlaylists()
-        return playlists[type].get(playlistId, None)
+        name = playlists.get(type, {}).get(playlistId, None)
+        if name is None and type == "playlist" and playlistId.startswith(SPOTIFY_MIX_PREFIX):
+            return SPOTIFY_MIX_NAME   #< failed lookups cached before this name existed
+        return name
 
     def writeProgress(self, status: str, current: int = 0, total: int = 0, message: str = "", error: bool = False):
         payload = {
@@ -420,11 +445,18 @@ class Database:
             self.saveArtistImg(url, imgId, final)
 
     def appendMetadata(self, meta: dict) -> None:
-        self.saveImagesFromTrack(meta)
+        """ Stores the play. Image and playlist-name lookups are extras: if they fail, the play is still saved. """
+        try:
+            self.saveImagesFromTrack(meta)
+        except Exception as e:
+            print(f"Couldn't save images for {meta.get('name')}: {parseError(e)}")
         entry, track = self._splitEntryAndTrack(meta)
-        self.appendEntries(entry)
         self.updateTracks(track)
-        self.updatePlaylists(entry.get("playedFrom", None))
+        self.appendEntries(entry)
+        try:
+            self.updatePlaylists(entry.get("playedFrom", None))
+        except Exception as e:
+            print(f"Couldn't look up the name of {entry.get('playedFrom')}: {parseError(e)}")
 
     def appendTrackData(self, timestamp, track, timePlayed, context=None):
         self.appendMetadata(Client.formatTrack(track, timestamp, timePlayed, context=context))

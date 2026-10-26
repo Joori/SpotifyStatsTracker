@@ -190,6 +190,125 @@ class ListenerThenImportTests(unittest.TestCase):
         self.assertIn("rate limit", progress["message"])
 
 
+class MixApi(FakeApi):
+    """ FakeApi whose playlist lookups 404, like Spotify-made playlists in Dev Mode. """
+    def __init__(self, tracksById):
+        super().__init__(tracksById)
+        self.playlistCalls = 0
+
+    def playlistName(self, playlistId):
+        self.playlistCalls += 1
+        raise SpotifyException(404, -1, "Resource not found")
+
+
+class LiveTestFindingsTests(unittest.TestCase):
+    """ Cases from a live run: export first, then the listener's first poll. """
+    MIX = "37i9dQZF1EIebRCzNzc6XZ"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.girl = rawTrack("girlLikeMe", "A Girl Like Me - Alex K Mix", artist="Various Artists")
+        self.girl["duration_ms"] = 227_648
+        self.acid = rawTrack("powerOfAcid", "Power of Acid", artist="Ranji")
+        self.acid["duration_ms"] = 548_436
+        self.ufo = rawTrack("ufo", "Talking With U.F.O's - Ben Nicky Radio Edit", artist="Vini Vici")
+        self.api = MixApi({t["id"]: t for t in (self.girl, self.acid, self.ufo)})
+        self.db = TempDatabase(self.tmp.name, self.api)
+        self.girlEnd = BASE
+        self.acidEnd = BASE + 2481     #< 41 min later; this play lasted only 8.7s
+        self.export = [
+            extendedRow(self.girl, self.girlEnd, 227_648),
+            extendedRow(self.acid, self.acidEnd, 8_714),
+        ]
+        mix = {"uri": f"spotify:playlist:{self.MIX}"}
+        self.recent = [   #< recently-played reports the same two plays (played_at = when they ended)
+            dict(recentlyPlayedItem(self.acid, self.acidEnd), context={"uri": "spotify:playlist:5tNJ1RhtIm1kI7EMiJMDOr"}),
+            dict(recentlyPlayedItem(self.girl, self.girlEnd), context=mix),
+        ]
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def entries(self):
+        return self.db._loadEntries()
+
+    def testListenerSkipsPlaysAlreadyImportedIncludingShortOnes(self):
+        self.db.importHistory(json.dumps(self.export))
+        self.db._addToDatabaseFromListener(self.recent)
+        self.assertEqual(len(self.entries()), 2, self.entries())
+        self.assertFalse(any(e.get("estimated") for e in self.entries()))
+
+    def testListenerMatchesByTrackIdEvenIfStoredMetadataIsStale(self):
+        self.db.importHistory(json.dumps(self.export))
+        tracks = self.db._loadTracks()
+        tracks["girlLikeMe"]["artists"][0]["name"] = "Marianne"   #< older metadata with a different first artist
+        self.db._saveTracks(tracks)
+        self.db._addToDatabaseFromListener(self.recent)
+        self.assertEqual(len(self.entries()), 2, self.entries())
+
+    def testImportReplacesShortLivePlay(self):
+        self.db._addToDatabaseFromListener(self.recent)
+        self.db.importHistory(json.dumps(self.export))
+        entries = self.entries()
+        self.assertEqual(len(entries), 2, entries)
+        self.assertEqual(sorted(e["timePlayed"] for e in entries), [8_714, 227_648])
+        self.assertIn("2 live-recorded play(s) replaced", self.db.readProgress()["message"])
+
+    def testFailedMixLookupStillStoresPlayAndIsNotRetried(self):
+        ufoPlay = dict(recentlyPlayedItem(self.ufo, BASE + 4000), context={"uri": f"spotify:playlist:{self.MIX}"})
+        self.db._addToDatabaseFromListener([ufoPlay])
+        self.assertEqual([e["id"] for e in self.entries()], ["ufo"])
+        self.assertEqual(self.db.playlistName(f"playlist:{self.MIX}"), "Spotify mix")
+
+        later = dict(recentlyPlayedItem(self.girl, BASE + 5000), context={"uri": f"spotify:playlist:{self.MIX}"})
+        self.db._addToDatabaseFromListener([later, ufoPlay])
+        self.assertEqual(len(self.entries()), 2)
+        self.assertEqual(self.api.playlistCalls, 1)   #< 404 cached, no retry
+
+    def testPlayIsStoredEvenIfImageAndNameLookupsCrash(self):
+        def boom(*args, **kwargs):
+            raise RuntimeError("network down")
+        self.db.saveImagesFromTrack = boom
+        self.db.updatePlaylists = boom
+        self.db._addToDatabaseFromListener([recentlyPlayedItem(self.ufo, BASE + 4000)])
+        self.assertEqual([e["id"] for e in self.entries()], ["ufo"])
+
+    def testDataVersionChangesOnlyWhenPlaysAreSaved(self):
+        before = self.db.dataVersion
+        self.db._addToDatabaseFromListener(self.recent)
+        afterFirst = self.db.dataVersion
+        self.assertNotEqual(before, afterFirst)
+        self.db._addToDatabaseFromListener(self.recent)   #< nothing new
+        self.assertEqual(afterFirst, self.db.dataVersion)
+
+    def testCleanupRemovesOnlyDuplicateLivePlays(self):
+        sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'tools')))
+        import removeDuplicateLivePlays as cleanup
+
+        # The live run's state: export imported, then duplicates added by the old listener,
+        # plus one live play that isn't in the export and must stay.
+        self.db.importHistory(json.dumps(self.export))
+        entries = self.entries()
+        for track, end in ((self.girl, self.girlEnd), (self.acid, self.acidEnd)):
+            entries.append({"id": track["id"], "playedAt": end - track["duration_ms"] // 1000,
+                            "timePlayed": track["duration_ms"], "playedFrom": None, "estimated": True})
+        self.db._saveTracks(dict(self.db._loadTracks(), ufo={**self.db._loadTracks()["girlLikeMe"], "id": "ufo", "name": "UFO"}))
+        entries.append({"id": "ufo", "playedAt": BASE + 9000, "timePlayed": 1, "playedFrom": None, "estimated": True})
+        self.db._saveEntries(entries)
+
+        lines = []
+        found = cleanup.run(self.tmp.name, apply=False, out=lines.append)
+        self.assertEqual(sorted(e["id"] for e in found), ["girlLikeMe", "powerOfAcid"])
+        self.assertEqual(len(json.loads(Path(self.db.entriesPath).read_text())), 5)   #< dry run writes nothing
+        self.assertIn("Dry run", lines[-1])
+
+        cleanup.run(self.tmp.name, apply=True, out=lines.append)
+        kept = json.loads(Path(self.db.entriesPath).read_text())
+        self.assertEqual(len(kept), 3)
+        self.assertEqual([e["id"] for e in kept if e.get("estimated")], ["ufo"])
+        self.assertTrue(list(Path(self.tmp.name).glob("entries.json.bak-*")))
+
+
 class EstimatedStatsTests(unittest.TestCase):
     tracks = {"t1": {"id": "t1", "name": "One", "duration": 200_000, "artists": [{"name": "A"}]}}
 

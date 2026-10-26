@@ -10,7 +10,6 @@ several imports grabbing the same live play.
 """
 
 SLACK_SECONDS = 60
-MIN_LIVE_PLAY_MS = 30_000     #< recently-played only lists plays of 30s or more
 EXACT_TOLERANCE_SECONDS = 2
 
 
@@ -67,6 +66,30 @@ def _group(items):
     return groups
 
 
+def _timed(entries, tracks, keyFor=None):
+    keyFor = keyFor or (lambda e: _entryKey(e, tracks))
+    return _group(
+        (keyFor(e), (e.get("playedAt") or 0, _durationSeconds(e.get("id"), tracks, e.get("timePlayed")), e))
+        for e in entries
+    )
+
+
+def pairWithEstimates(realEntries, estimatedEntries, tracks):
+    """ [(real, estimate)] for each estimated play a real play covers: same song, paired in order. """
+    estimatedGroups = _timed(estimatedEntries, tracks)
+    pairs = []
+    for key, real in _timed(realEntries, tracks).items():
+        pairs.extend(matchInOrder(real, estimatedGroups.get(key, [])))
+    return pairs
+
+
+def duplicateEstimates(entries, tracks):
+    """ Estimated (live) plays that duplicate a real play already stored. """
+    real = [e for e in entries if not e.get("estimated")]
+    estimated = [e for e in entries if e.get("estimated")]
+    return [estimate for _, estimate in pairWithEstimates(real, estimated, tracks)]
+
+
 def mergeImported(existingEntries, importedEntries, tracks):
     """
     Decide how imported plays combine with what is already stored.
@@ -94,55 +117,44 @@ def mergeImported(existingEntries, importedEntries, tracks):
             continue
         entriesToAdd.append(entry)
 
-    importedGroups = _group(
-        (_entryKey(e, tracks), (e.get("playedAt") or 0, _durationSeconds(e.get("id"), tracks, e.get("timePlayed")), e))
-        for e in entriesToAdd
-        if (e.get("timePlayed") or 0) >= MIN_LIVE_PLAY_MS
-    )
-    estimatedGroups = _group(
-        (_entryKey(e, tracks), (e.get("playedAt") or 0, _durationSeconds(e.get("id"), tracks, e.get("timePlayed")), e))
-        for e in estimated
-    )
-
-    estimatesToReplace = []
-    for key, imported in importedGroups.items():
-        for _, estimate in matchInOrder(imported, estimatedGroups.get(key, [])):
-            estimatesToReplace.append(estimate)
-
+    # Short plays count too: recently-played does list some plays under 30s
+    estimatesToReplace = [estimate for _, estimate in pairWithEstimates(entriesToAdd, estimated, tracks)]
     return estimatesToReplace, entriesToAdd, duplicatesSkipped
 
 
 def filterNewLivePlays(candidates, existingEntries, tracks):
     """
     candidates: list of dicts with "id", "playedAt" (estimated start), "duration" (ms), "key".
-    Drops candidates already stored: either the same estimated play from an earlier poll
-    (identical estimate) or a real play from an imported export (paired in order).
+    Drops candidates that are already stored, imported or live, using the importer's rule:
+    same song, start within track length + SLACK_SECONDS, paired in order.
     """
-    estimatedStarts = {}
-    real = []
+    # The same live play seen again by a later poll has an identical estimate. Pair those first,
+    # so back-to-back repeats of a song can't fuzzy-pair with the wrong earlier play.
+    estimatedById = {}
     for entry in existingEntries:
         if entry.get("estimated"):
-            estimatedStarts.setdefault(entry.get("id"), []).append(entry.get("playedAt") or 0)
-        elif (entry.get("timePlayed") or 0) >= MIN_LIVE_PLAY_MS:
-            real.append(entry)
-
+            estimatedById.setdefault(entry.get("id"), []).append(entry)
+    used = set()
     remaining = []
     for candidate in candidates:
-        starts = estimatedStarts.get(candidate["id"], [])
-        if any(abs(candidate["playedAt"] - s) <= EXACT_TOLERANCE_SECONDS for s in starts):
+        same = next((e for e in estimatedById.get(candidate["id"], ())
+                     if id(e) not in used and abs(candidate["playedAt"] - (e.get("playedAt") or 0)) <= EXACT_TOLERANCE_SECONDS), None)
+        if same is not None:
+            used.add(id(same))
             continue
         remaining.append(candidate)
 
+    # A stored play with the same track id is the same song even if its saved metadata
+    # (name/artist) is out of date, so key it like the candidate.
+    keyById = {c["id"]: c["key"] or c["id"] for c in remaining}
+    stored = [e for e in existingEntries if id(e) not in used]
+    storedGroups = _timed(stored, tracks, keyFor=lambda e: keyById.get(e.get("id")) or _entryKey(e, tracks))
     candidateGroups = _group(
         (c["key"] or c["id"], (c["playedAt"], int((c.get("duration") or 0) // 1000), c)) for c in remaining
     )
-    realGroups = _group(
-        (_entryKey(e, tracks), (e.get("playedAt") or 0, _durationSeconds(e.get("id"), tracks, e.get("timePlayed")), e))
-        for e in real
-    )
     alreadyStored = set()
     for key, group in candidateGroups.items():
-        for candidate, _ in matchInOrder(group, realGroups.get(key, [])):
+        for candidate, _ in matchInOrder(group, storedGroups.get(key, [])):
             alreadyStored.add(id(candidate))
 
     return [c for c in remaining if id(c) not in alreadyStored]
