@@ -336,20 +336,26 @@
       <h3>Trending</h3>
       {% if trendingSongs %}
       <div data-show-more data-initial="{{ list_preview }}" data-step="{{ list_preview }}">
-        <ul class="insight-list">
+        <div class="peak-obsession-list">
           {% for song in trendingSongs %}
-          <li data-show-more-item{% if loop.index > list_preview %} hidden{% endif %}>
-            <a href="/song/{{ song.id }}">
+          <a class="insight-entity" href="/song/{{ song.id }}" data-show-more-item{% if loop.index > list_preview %} hidden{% endif %}>
+            {% if song.imageId %}
+            <img loading="lazy" src="/img/{{ username }}/tracks/{{ song.imageId }}.jpeg" alt="" onerror="this.style.display='none'" />
+            {% endif %}
+            <div>
               <strong>{{ song.name }}</strong>
+              <span>{{ song.artistsText }}</span>
               <span>+{{ song.lift }} plays vs prior period</span>
-            </a>
-          </li>
+            </div>
+          </a>
           {% endfor %}
-        </ul>
+        </div>
         {{ show_more_controls(trendingSongs|length, list_preview) }}
       </div>
-      {% else %}
+      {% elif not interval or interval == 'all time' %}
       <p class="loading">Need a bounded time range to compute trends.</p>
+      {% else %}
+      <p class="loading">Nothing played more than in the previous period.</p>
       {% endif %}
     </div>
   </div>
