@@ -2656,7 +2656,28 @@ a.track-label {
   color: var(--negative) !important;
 }
 
-.pm-privacy-note {
-  margin-top: 20px;
-  font-size: 0.85rem;
+.pm-publish {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  max-width: 360px;
+}
+
+.pm-privacy {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+  text-align: right;
+}
+
+@media (max-width: 640px) {
+  .pm-publish {
+    align-items: flex-start;
+    max-width: none;
+  }
+
+  .pm-privacy {
+    text-align: left;
+  }
 }

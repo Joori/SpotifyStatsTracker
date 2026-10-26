@@ -429,11 +429,16 @@ class PlaylistMakerRouteTests(unittest.TestCase):
         self.assertIn("done=created", response.location)
         html = self.client.get(response.location).get_data(as_text=True)
         self.assertIn("Created", html)
+        reminder = "Not shown on your profile. Spotify still marks it Public, so anyone with the link can open it."
+        self.assertEqual(html.count(reminder), 2)   #< next to the button and in the Created message
+        self.assertIn("open it in Spotify and choose Make private.", html)
         self.assertIn("https://open.spotify.com/playlist/pl1", html)
         self.assertIn("Update playlist on Spotify", html)
 
         again = self.client.post("/playlist-maker", data={"kind": "top-year", "year": "2020"}, headers=headers)
         self.assertIn("done=updated", again.location)
+        updated = self.client.get(again.location).get_data(as_text=True)
+        self.assertEqual(updated.count(reminder), 1)   #< only next to the button after an update
         self.assertEqual(len(self.spotifyFake.playlists), 1)
 
     def testRateLimitIsShownNotRaised(self):

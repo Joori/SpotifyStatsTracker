@@ -58,6 +58,7 @@
       <input type="hidden" name="kind" value="{{ kind }}" />
       <input type="hidden" name="year" value="{{ year }}" />
       <button class="primary-button" type="submit"{% if pending %} disabled{% endif %}>{% if existing %}Update playlist on Spotify{% else %}Create playlist on Spotify{% endif %}</button>
+      <p class="pm-privacy">Not shown on your profile. Spotify still marks it Public, so anyone with the link can open it. To make it fully private, open it in Spotify and choose Make private.</p>
     </form>
     {% endif %}
   </header>
@@ -75,6 +76,7 @@
   {% if result %}
   <p class="pm-result" role="status">
     {% if result.created %}Created{% else %}Updated{% endif %} "{{ existing.name if existing else preview.name }}" on Spotify{% if existing %} with {{ existing.trackCount }} songs. <a href="{{ existing.url }}" target="_blank" rel="noopener noreferrer">Open in Spotify</a>{% else %}.{% endif %}
+    {% if result.created %}<br />Not shown on your profile. Spotify still marks it Public, so anyone with the link can open it. To make it fully private, open it in Spotify and choose Make private.{% endif %}
   </p>
   {% elif existing %}
   <p class="muted">You made this playlist before{% if existing.updatedAt %} (last updated {{ existing.updatedAt[:10] }}){% endif %}. Updating replaces its songs with this list. <a href="{{ existing.url }}" target="_blank" rel="noopener noreferrer">Open in Spotify</a></p>
@@ -126,7 +128,6 @@
   </ol>
   {% endif %}
 
-  <p class="muted pm-privacy-note">The tracker creates playlists with "public" off, which keeps them off your Spotify profile. Spotify's API can't set the app's own private setting, so the app may still say "Public Playlist"; to hide it completely, choose <em>Make private</em> on the playlist in Spotify.</p>
 </section>
 {% if pending and not checkPausedUntil %}
 <script>setTimeout(() => { if (!document.hidden) location.reload(); else document.addEventListener('visibilitychange', () => location.reload(), { once: true }); }, 2500);</script>
