@@ -73,6 +73,7 @@ def generate(kind, params, entries, tracks, now=None):
     """
     playlist = _generate(kind, params, entries, tracks, now)
     playlist["tracks"] = playlist["candidates"][:PLAYLIST_SIZE]
+    playlist["summary"] = playlist["description"].replace(MARKER, "").strip()   #< for the page; Spotify gets the marker
     return playlist
 
 

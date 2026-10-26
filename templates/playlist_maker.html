@@ -50,7 +50,7 @@
   <header class="pm-preview-header">
     <div>
       <h2>{{ preview.name }}</h2>
-      <p class="muted">{{ preview.description }}</p>
+      <p class="muted">{{ preview.summary }}</p>
       <p class="muted">{{ rows|length }} song{{ '' if rows|length == 1 else 's' }}{% if skippedRows %} · {{ skippedRows|length }} unavailable skipped{% endif %} · not shown on your profile</p>
     </div>
     {% if rows %}

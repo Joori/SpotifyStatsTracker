@@ -39,7 +39,8 @@ class GenerateTests(unittest.TestCase):
         self.assertEqual((result["key"], result["name"]), ("top-year-2020", "Top 50 of 2020"))
         self.assertEqual(len(result["tracks"]), 50)
         self.assertEqual(result["tracks"][0], {"id": tid(59), "detail": "60 plays in 2020"})
-        self.assertIn(pg.MARKER, result["description"])
+        self.assertIn(pg.MARKER, result["description"])            #< still sent to Spotify
+        self.assertEqual(result["summary"], "Your most played songs of 2020.")   #< shown on the page
 
     def testYearBoundariesUseLocalTime(self):
         entries = [{"id": tid(1), "playedAt": ts(2020, 12, 31, 23)}, {"id": tid(2), "playedAt": ts(2021, 1, 1, 0)}]
@@ -380,6 +381,8 @@ class PlaylistMakerRouteTests(unittest.TestCase):
         self.assertIn("Top 50 of 2020", html)
         self.assertIn("Create playlist on Spotify", html)
         self.assertNotIn("Checking which songs", html)
+        self.assertNotIn(pg.MARKER, html)
+        self.assertIn(">Playlist Maker</a>", html)
         self.assertEqual(html.count('class="insight-entity"'), 3)
         self.assertEqual(html.count('class="entity-cover"'), 3)   #< cover box even when a song has no image
         self.assertEqual(self.spotifyFake.writes(), [])
