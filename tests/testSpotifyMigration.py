@@ -488,6 +488,96 @@ class SummaryApiTests(unittest.TestCase):
         self.assertEqual(data["listener"], {"connected": False, "last_poll": None})
 
 
+class PlaylistOverrideTests(unittest.TestCase):
+    MIX = "37i9dQZF1EIebRCzNzc6XZ"
+
+    def setUp(self):
+        from flask import Flask
+        from app import SpotifyDashboardApp
+        from Database.Formatters.spotifyClient import Client
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(__file__).resolve().parent.parent
+        songA, songB = rawTrack("trackA", "Song A"), rawTrack("trackB", "Song B")
+        self.db = TempDatabase(self.tmp.name, FakeApi({}))
+        self.db.playlistOverridesPath = Path(self.tmp.name) / "playlist_overrides.json"
+        self.db.imgDir_playlists = Path(self.tmp.name) / "img" / "playlists"
+        self.db._saveTracks({t["id"]: Client.formatTrack(t, embedPlaybackInfo=False) for t in (songA, songB)})
+        # Lookups failed before overrides existed: the mix was cached as None, like on a live install
+        self.db._savePlaylists({"album": {}, "playlist": {self.MIX: None, "mine": "My Playlist"}})
+        mix = f"playlist:{self.MIX}"
+        self.db._saveEntries([
+            {"id": "trackA", "playedAt": BASE, "timePlayed": 1000, "playedFrom": mix},
+            {"id": "trackB", "playedAt": BASE + 10, "timePlayed": 1000, "playedFrom": mix},
+            {"id": "trackB", "playedAt": BASE + 20, "timePlayed": 1000, "playedFrom": mix},
+            {"id": "trackA", "playedAt": BASE + 30, "timePlayed": 1000, "playedFrom": "playlist:mine"},
+        ])
+
+        dashboard = SpotifyDashboardApp.__new__(SpotifyDashboardApp)
+        dashboard.app = Flask("app", template_folder=str(root / "templates"), static_folder=str(root / "static"))
+        dashboard.spotify = SpotifyApi(Path(self.tmp.name) / "token", "id", "secret", "https://host/callback")
+        dashboard.spotify.isConnected = lambda: True
+        dashboard.pendingOAuthStates = {}
+        dashboard.username = "test"
+        dashboard.database = self.db
+        dashboard.registerRoutes()
+        self.dashboard = dashboard
+        self.client = dashboard.app.test_client()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def writeOverrides(self, data):
+        self.db.playlistOverridesPath.write_text(json.dumps(data))
+        stamp = time.time() + len(json.dumps(data))   #< distinct mtime per write
+        os.utime(self.db.playlistOverridesPath, (stamp, stamp))
+
+    def contexts(self):
+        return {c["id"]: c for c in self.db.getContextsStats()}
+
+    def testWithoutOverridesMixUsesMostPlayedTrackCover(self):
+        mix = self.contexts()[f"playlist:{self.MIX}"]
+        self.assertEqual(mix["name"], "Spotify mix")
+        self.assertEqual(mix["imageId"], "album-trackB")   #< Song B was played most from it
+        self.assertIsNone(mix["coverFile"])
+
+    def testOverrideNameAndCoverWinWithoutReimporting(self):
+        self.db.imgDir_playlists.mkdir(parents=True)
+        (self.db.imgDir_playlists / "mix.png").write_bytes(b"png")
+        self.writeOverrides({self.MIX: {"name": "Daily Mix 1", "cover": "mix.png"},
+                             "spotify:playlist:mine": {"name": "Renamed"}})
+        contexts = self.contexts()
+        self.assertEqual(contexts[f"playlist:{self.MIX}"]["name"], "Daily Mix 1")
+        self.assertEqual(contexts[f"playlist:{self.MIX}"]["coverFile"], "mix.png")
+        self.assertEqual(contexts["playlist:mine"]["name"], "Renamed")   #< beats the API name too
+
+        self.writeOverrides({self.MIX: {"name": "Edited again"}})   #< picked up without a restart
+        self.assertEqual(self.db.playlistName(f"playlist:{self.MIX}"), "Edited again")
+
+    def testBadCoverEntriesAreIgnored(self):
+        for cover in ("missing.png", "../entries.json", "", 5):
+            self.writeOverrides({self.MIX: {"cover": cover}})
+            self.assertIsNone(self.db.playlistCoverFile(f"playlist:{self.MIX}"), cover)
+        self.db.playlistOverridesPath.write_text("{not json")
+        os.utime(self.db.playlistOverridesPath, (time.time() + 999, time.time() + 999))
+        self.assertEqual(self.db.playlistName(f"playlist:{self.MIX}"), "Spotify mix")
+
+    def testExploreAndPlaylistPageNeverRenderAnEmptyCover(self):
+        self.db._saveTracks({})   #< no track info at all: only the placeholder is left
+        for url in ("/explore?tab=contexts", f"/playlist/{self.MIX}"):
+            html = self.client.get(url).get_data(as_text=True)
+            self.assertIn("/static/images/playlist-placeholder.svg", html, url)
+            self.assertNotIn("/tracks/.jpeg", html, url)
+            self.assertNotIn("/tracks/None.jpeg", html, url)
+
+    def testExploreShowsOverrideCover(self):
+        self.db.imgDir_playlists.mkdir(parents=True)
+        (self.db.imgDir_playlists / "mix.png").write_bytes(b"png")
+        self.writeOverrides({self.MIX: {"cover": "mix.png"}})
+        html = self.client.get("/explore?tab=contexts").get_data(as_text=True)
+        self.assertIn('src="/img/test/playlists/mix.png"', html)
+        self.assertIn('src="/img/test/tracks/album-trackA.jpeg"', html)   #< the other playlist: its top track
+
+
 class LoginPageTests(unittest.TestCase):
     def setUp(self):
         from flask import Flask

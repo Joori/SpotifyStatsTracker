@@ -17,6 +17,8 @@
 
   {% if section == 'top_artists' %}
     <img class="track-cover" loading="lazy" src="/img/{{ username }}/artists/{{ imgId }}.jpeg" alt="Artist image for {{ track.get('name','') }}" />
+  {% elif section == 'top_contexts' %}
+    <img class="track-cover" loading="lazy" src="{{ track.get('coverUrl') or '/static/images/playlist-placeholder.svg' }}" alt="Cover for {{ track.get('name','') }}" onerror="this.onerror=null;this.src='/static/images/playlist-placeholder.svg'" />
   {% else %}
     <img class="track-cover" loading="lazy" src="/img/{{ username }}/tracks/{{ imgId }}.jpeg" alt="Cover for {{ track.get('name','') }}" />
   {% endif %}

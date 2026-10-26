@@ -232,12 +232,24 @@ class SpotifyDashboardApp:
         album["albumDepthText"] = f"{albumDepth}% of the album" if albumDepth else None
         return album
 
+    PLAYLIST_PLACEHOLDER = "/static/images/playlist-placeholder.svg"
+
+    def _contextCoverUrl(self, contextUri, imageId=None) -> str:
+        """ Cover for a playlist/album context: override cover > most-played track's cover > placeholder. """
+        coverFile = self.database.playlistCoverFile(contextUri) if hasattr(self.database, "playlistCoverFile") else None
+        if coverFile:
+            return f"/img/{getattr(self, 'username', '')}/playlists/{coverFile}"
+        if imageId:
+            return f"/img/{getattr(self, 'username', '')}/tracks/{imageId}.jpeg"
+        return self.PLAYLIST_PLACEHOLDER
+
     def _embedContextTextElements(self, context, sortBy=None, totalPlays=0, totalMs=0) -> dict:
         context["totalTimeListenedText"] = msToString(context.get("totalTimeListened", 0))
         context["firstListenedText"] = convertToDatetime(context.get("firstListenedAt", 0)).strftime("%b %d, %Y")
         context["sortPercentText"] = self._getPercentPlayedText(context, sortBy, totalPlays, totalMs)
         context["detailUrl"] = self._getContextUrl(context.get("id"))
         context["contextTypeText"] = "Album" if context.get("contextType") == "album" else "Playlist"
+        context["coverUrl"] = self._contextCoverUrl(context.get("id"), context.get("imageId"))
         return context
 
     def _embedSongsTextElements(self, songs) -> list[dict]:
@@ -934,12 +946,18 @@ class SpotifyDashboardApp:
         relatedTracks = self._rankPlayedTracks(historyItems, plays, totalTimeMs)
 
         entityName = self._safePlaylistName(fullUri) or bareId
+        playCounts = {}
+        for item in historyItems:
+            playCounts[item.get("imageId")] = playCounts.get(item.get("imageId"), 0) + 1
+        playCounts.pop(None, None)
+        topImageId = max(playCounts, key=playCounts.get) if playCounts else None
         entity = {
             "name": entityName,
             "id": fullUri,
             "url": f"https://open.spotify.com/playlist/{bareId}",
             "spotifyEmbedUrl": self._getSpotifyEmbedUrl("playlist", fullUri),
-            "imageId": historyItems[0].get("imageId") if historyItems else None,
+            "imageId": topImageId,
+            "coverUrl": self._contextCoverUrl(fullUri, topImageId),
             "playCount": plays,
             "totalTimeMs": totalTimeMs,
             "firstListenedText": convertToDatetime(firstPlayedAt).strftime("%b %d, %Y") if firstPlayedAt else "Never",
@@ -1076,6 +1094,11 @@ class SpotifyDashboardApp:
         @self.app.route('/img/<username>/tracks/<filename>')
         def serveTrackImage(username, filename):
             imageDir = os.path.join(self.baseDir, "Database", "Users", username, "img", "tracks")
+            return send_from_directory(imageDir, filename)
+
+        @self.app.route('/img/<username>/playlists/<filename>')
+        def servePlaylistImage(username, filename):
+            imageDir = os.path.join(self.baseDir, "Database", "Users", username, "img", "playlists")
             return send_from_directory(imageDir, filename)
 
         @self.app.route('/img/<username>/artists/<filename>')

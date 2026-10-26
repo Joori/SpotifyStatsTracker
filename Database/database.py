@@ -47,6 +47,8 @@ class Database:
 
         self.imgDir_tracks = self.baseDir / "Users" / self.user / "img" / "tracks"
         self.imgDir_artists = self.baseDir / "Users" / self.user / "img" / "artists"
+        self.imgDir_playlists = self.baseDir / "Users" / self.user / "img" / "playlists"   #< covers for playlist_overrides.json
+        self.playlistOverridesPath = self.baseDir / "Users" / self.user / "playlist_overrides.json"
         self.entriesPath = self.baseDir / "Users" / self.user / "entries.json"
         self.tracksPath = self.baseDir / "Users" / self.user / "tracks.json"
         self.playlistsPath = self.baseDir / "Users" / self.user / "playlists.json"
@@ -57,6 +59,7 @@ class Database:
         self.entriesCache = None
         self.tracksCache = None
         self.playlistsCache = None
+        self._overridesCache = (None, {})   #< (file mtime, overrides), re-read when the file changes
         self._dataVersionBase = time.time_ns()   #< a restart counts as a change, so open pages reload once
         self._dataVersionCount = 0
 
@@ -325,10 +328,50 @@ class Database:
                 return self._paginateEntries(slicedEntries)
             return slicedEntries
 
+    def _loadPlaylistOverrides(self) -> dict:
+        """
+        User-edited playlist_overrides.json: {"<playlist id>": {"name": "...", "cover": "<file in img/playlists/>"}}.
+        Re-read whenever the file changes, so edits apply without a restart.
+        """
+        try:
+            mtime = self.playlistOverridesPath.stat().st_mtime
+        except OSError:
+            return {}
+        if self._overridesCache[0] == mtime:
+            return self._overridesCache[1]
+        overrides = {}
+        try:
+            raw = json.loads(self.playlistOverridesPath.read_text(encoding="utf-8"))
+            for key, value in (raw or {}).items():
+                if isinstance(value, dict):
+                    overrides[str(key).split(":")[-1]] = value   #< accepts "id", "playlist:id" or "spotify:playlist:id"
+        except (OSError, ValueError, AttributeError) as e:
+            print(f"Ignoring {self.playlistOverridesPath.name}: {parseError(e)}")
+        self._overridesCache = (mtime, overrides)
+        return overrides
+
+    def _playlistOverride(self, playlistUri) -> dict:
+        if not playlistUri or ":" not in playlistUri:
+            return {}
+        contextType, playlistId = playlistUri.split(":", 1)
+        if contextType != "playlist":
+            return {}
+        return self._loadPlaylistOverrides().get(playlistId, {})
+
+    def playlistCoverFile(self, playlistUri: str | None) -> str | None:
+        """ Override cover filename, only if that file exists in img/playlists/. """
+        cover = self._playlistOverride(playlistUri).get("cover")
+        if not isinstance(cover, str) or not cover or Path(cover).name != cover:
+            return None
+        return cover if (self.imgDir_playlists / cover).is_file() else None
+
     def playlistName(self, playlistUri: str | None) -> str | None:
         """Return the playlist name for a Spotify playlist URI or id, caching it on first lookup."""
         if not playlistUri:
             return None
+        override = self._playlistOverride(playlistUri).get("name")
+        if isinstance(override, str) and override.strip():
+            return override.strip()
         type, playlistId = playlistUri.split(":", 1)
         playlists = self._loadPlaylists()
         name = playlists.get(type, {}).get(playlistId, None)
@@ -794,17 +837,22 @@ class Database:
                     "contextType": contextType,
                     "plays": 0,
                     "totalTimeListened": 0,
-                    "uniqueSongs": set(),
+                    "uniqueSongs": {},
                     "firstListenedAt": entry.get("playedAt"),
                 }
             contexts[playedFrom]["plays"] += 1
             contexts[playedFrom]["totalTimeListened"] += entry.get("timePlayed", 0)
-            contexts[playedFrom]["uniqueSongs"].add(entry.get("id"))
+            songs = contexts[playedFrom]["uniqueSongs"]
+            songs[entry.get("id")] = songs.get(entry.get("id"), 0) + 1
 
+        tracks = self._loadTracks()
         normalized = []
         for ctx in contexts.values():
-            ctx["uniqueSongCount"] = len(ctx["uniqueSongs"])
-            ctx.pop("uniqueSongs", None)
+            songs = ctx.pop("uniqueSongs")
+            ctx["uniqueSongCount"] = len(songs)
+            ctx["coverFile"] = self.playlistCoverFile(ctx["id"])
+            topTrackId = max(songs, key=songs.get) if songs else None
+            ctx["imageId"] = (tracks.get(topTrackId) or {}).get("imageId")   #< most-played track's cover
             normalized.append(ctx)
         return normalized
 

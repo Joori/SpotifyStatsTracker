@@ -6,6 +6,8 @@
     <div class="entity-hero-media">
       {% if entityType == 'artist' %}
         <img class="entity-cover" loading="lazy" src="/img/{{ username }}/artists/{{ entity.get('imageId') }}.jpeg" alt="{{ entity.get('name', '') }}" onerror="this.style.display='none'" />
+      {% elif entityType == 'playlist' %}
+        <img class="entity-cover" loading="lazy" src="{{ entity.get('coverUrl') or '/static/images/playlist-placeholder.svg' }}" alt="{{ entity.get('name', '') }}" onerror="this.onerror=null;this.src='/static/images/playlist-placeholder.svg'" />
       {% else %}
         <img class="entity-cover" loading="lazy" src="/img/{{ username }}/tracks/{{ entity.get('imageId') }}.jpeg" alt="{{ entity.get('name', '') }}" onerror="this.style.display='none'" />
       {% endif %}

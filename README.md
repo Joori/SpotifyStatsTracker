@@ -91,6 +91,28 @@ gives exact listen times and skips. Upload the `Streaming_History_Audio_*.json` 
 Importing a newer export after the tracker has been running replaces the matching live
 (estimated) plays with the real ones, so nothing is counted twice.
 
+## Playlist names and covers
+
+Spotify-made playlists can't be read through the API, so they show as "Spotify mix" with the
+cover of the song you played most from them. To give one (or any playlist) its own name or
+cover, create `playlist_overrides.json` in your user folder: the folder under `Database/` on the
+host that holds `entries.json`.
+
+```json
+{
+  "37i9dQZF1EIebRCzNzc6XZ": { "name": "Daily Mix 1", "cover": "daily-mix-1.jpg" },
+  "5tNJ1RhtIm1kI7EMiJMDOr": { "name": "Bush Doof" }
+}
+```
+
+- The key is the playlist ID: the part after `/playlist/` in its Spotify link or in the tracker's playlist page URL.
+- `name` and `cover` are both optional. Overrides win over names from Spotify and over "Spotify mix".
+- Put cover images in `img/playlists/` inside the same user folder. `cover` is the bare filename.
+- Changes apply on the next page load, with no restart or re-import. If the file isn't valid JSON,
+  it's ignored and a message is logged.
+
+Without an override or a usable cover, a generic playlist icon is shown.
+
 ## Dashboard API
 
 `GET /api/summary` returns a small read-only JSON summary, e.g. for a
