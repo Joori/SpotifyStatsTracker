@@ -1,3 +1,4 @@
+import datetime
 import json
 import os
 import sys
@@ -410,6 +411,81 @@ class RelogTests(unittest.TestCase):
 
         self.assertTrue(self.api.needsRelog())
         self.assertFalse(self.api.isConnected())
+
+
+class SummaryApiTests(unittest.TestCase):
+    def setUp(self):
+        from flask import Flask
+        from app import SpotifyDashboardApp
+        from Database.Formatters.spotifyClient import Client
+        from Database.Listeners.spotifyListener import Listener
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(__file__).resolve().parent.parent
+        songA, songB = rawTrack("trackA", "Song A"), rawTrack("trackB", "Song B", artist="Artist Two")
+        api = FakeApi({t["id"]: t for t in (songA, songB)})
+        api.recentlyPlayed = lambda limit=50: []
+        self.db = TempDatabase(self.tmp.name, api)
+
+        nowTs = int(time.time())
+        self.db._saveTracks({t["id"]: Client.formatTrack(t, embedPlaybackInfo=False) for t in (songA, songB)})
+        self.db._saveEntries([
+            {"id": "trackA", "playedAt": nowTs - 20 * 86400, "timePlayed": 100_000, "playedFrom": None},
+            {"id": "trackA", "playedAt": nowTs - 3 * 86400, "timePlayed": 120_000, "playedFrom": None},
+            {"id": "trackB", "playedAt": nowTs - 600, "timePlayed": DURATION_MS, "playedFrom": None, "estimated": True},
+            {"id": "trackA", "playedAt": nowTs - 3600, "timePlayed": 90_500, "playedFrom": None},   #< out of order on purpose
+        ])
+        self.db.listener = Listener(api)
+        self.db.listener.pollOnce(lambda items: None)
+
+        dashboard = SpotifyDashboardApp.__new__(SpotifyDashboardApp)
+        dashboard.app = Flask("app", template_folder=str(root / "templates"), static_folder=str(root / "static"))
+        dashboard.spotify = SpotifyApi(Path(self.tmp.name) / "token", "id", "secret", "https://host/callback")
+        dashboard.spotify.isConnected = lambda: True
+        dashboard.pendingOAuthStates = {}
+        dashboard.database = self.db
+        dashboard.registerRoutes()
+        self.dashboard = dashboard
+        self.client = dashboard.app.test_client()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def testSummaryMatchesOverviewNumbers(self):
+        response = self.client.get("/api/summary")
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+
+        self.assertEqual(data["plays_today"], 2)
+        self.assertEqual(data["listen_seconds_today"], (DURATION_MS + 90_500) // 1000)
+        self.assertEqual(data["plays_week"], 3)
+        self.assertEqual(data["total_plays"], 4)
+        # Same functions and ranges the Overview page uses
+        for interval, plays in (("day", "plays_today"), ("week", "plays_week")):
+            start, end = self.dashboard._getDateRange(interval)
+            self.assertEqual(data[plays], self.db.getOverallStats(start, end)["totalSongsPlayed"])
+        self.assertEqual(data["current_streak_days"], self.db.getStreakStats()["currentStreak"])
+        self.assertGreaterEqual(data["current_streak_days"], 1)
+
+        self.assertEqual(data["last_played"]["track"], "Song B")
+        self.assertEqual(data["last_played"]["artist"], "Artist Two")
+        self.assertTrue(data["listener"]["connected"])
+        for stamp in (data["last_played"]["played_at"], data["listener"]["last_poll"]):
+            self.assertIsNotNone(datetime.datetime.fromisoformat(stamp).tzinfo, stamp)
+
+        self.assertEqual(set(data), {"plays_today", "listen_seconds_today", "plays_week", "total_plays",
+                                     "current_streak_days", "last_played", "listener"})
+        body = response.get_data(as_text=True).lower()
+        for secret in ("secret", "token", "client_id", "access", "refresh"):
+            self.assertNotIn(secret, body)
+
+    def testSummaryWorksWithNoPlaysAndNoListener(self):
+        self.db._saveEntries([])
+        self.db.listener = None
+        self.dashboard.spotify.isConnected = lambda: False
+        data = self.client.get("/api/summary").get_json()
+        self.assertEqual((data["plays_today"], data["total_plays"], data["current_streak_days"]), (0, 0, 0))
+        self.assertIsNone(data["last_played"])
+        self.assertEqual(data["listener"], {"connected": False, "last_poll": None})
 
 
 class LoginPageTests(unittest.TestCase):

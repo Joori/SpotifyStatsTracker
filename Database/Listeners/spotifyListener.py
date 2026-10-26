@@ -1,3 +1,4 @@
+import datetime
 import os
 import threading
 
@@ -26,6 +27,7 @@ class Listener:
         self.pollInterval = pollInterval or _pollIntervalFromEnv()
         self._stopEvent = threading.Event()
         self.thread = None
+        self.lastPoll = None     #< when recently-played last answered (aware datetime), for /api/summary
 
     def isLoggedIn(self):
         return self.api.isConnected()
@@ -41,6 +43,7 @@ class Listener:
         except SpotifyAuthError as e:
             print(f"Listener paused, Spotify login needed ({e.reason})")
             return
+        self.lastPoll = datetime.datetime.now().astimezone()
         if items:
             callback(items)
 

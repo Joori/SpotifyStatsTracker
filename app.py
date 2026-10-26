@@ -1017,6 +1017,40 @@ class SpotifyDashboardApp:
 
             return startDate, endDate
 
+    def _buildSummary(self):
+        """ Read-only stats for dashboards. Same ranges and totals as the Overview page; no secrets. """
+        dayStart, dayEnd = self._getDateRange("day")
+        weekStart, weekEnd = self._getDateRange("week")
+        today = self.database.getOverallStats(dayStart, dayEnd)
+        week = self.database.getOverallStats(weekStart, weekEnd)
+        allTime = self.database.getOverallStats(None, None)
+
+        lastPlayed = None
+        entries = self.database._loadEntries()
+        if entries:
+            latest = max(entries, key=lambda e: convertToDatetime(e["playedAt"]))
+            track = self.database._loadTracks().get(latest["id"]) or {}
+            lastPlayed = {
+                "track": track.get("name"),
+                "artist": ", ".join(a.get("name", "") for a in track.get("artists") or []) or None,
+                "played_at": convertToDatetime(latest["playedAt"]).isoformat(),
+            }
+
+        listener = self.database.listener
+        lastPoll = getattr(listener, "lastPoll", None)
+        return {
+            "plays_today": int(today["totalSongsPlayed"]),
+            "listen_seconds_today": int(today["totalDurationMs"] // 1000),
+            "plays_week": int(week["totalSongsPlayed"]),
+            "total_plays": int(allTime["totalSongsPlayed"]),
+            "current_streak_days": int(self.database.getStreakStats().get("currentStreak", 0)),
+            "last_played": lastPlayed,
+            "listener": {
+                "connected": bool(self.spotify.isConnected()),
+                "last_poll": lastPoll.isoformat() if lastPoll else None,
+            },
+        }
+
     def _getIntervalLabel(self, interval: str = None, customStart: str = None, customEnd: str = None):
         labels = {
             "all time": "All Time",
@@ -1114,6 +1148,10 @@ class SpotifyDashboardApp:
         @self.app.route("/spotify-status", methods=["GET"])
         def spotifyStatus():
             return jsonify(self.spotify.status())
+
+        @self.app.route("/api/summary", methods=["GET"])
+        def apiSummary():
+            return jsonify(self._buildSummary())
 
         @self.app.route("/data-version", methods=["GET"])
         def dataVersion():
