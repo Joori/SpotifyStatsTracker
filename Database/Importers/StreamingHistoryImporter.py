@@ -16,7 +16,7 @@ FATAL_ERRORS = (RateLimitedError, SpotifyAuthError)
 
 
 class Importer:
-    def __init__(self, api=None, user="kjljixx", chunkSize = 1500, maxRetryWait=None):
+    def __init__(self, api=None, user="joori", chunkSize = 1500, maxRetryWait=None):
         self.api = api
         self.chunkSize = chunkSize
         self.maxRetryWait = maxRetryWait if maxRetryWait is not None else getattr(api, "maxRetryWait", 0)
